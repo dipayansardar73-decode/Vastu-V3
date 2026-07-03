@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#08110f" />
+    <meta
+      name="description"
+      content="VASTU Engineering Studio - constraint-aware building concept generation for civil engineering professionals."
+    />
+    <title>VASTU Engineering Studio</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true"><span></span><span></span></div>
+          <div>
+            <strong>VASTU</strong>
+            <small>Engineering Studio / Concept Design</small>
+          </div>
+        </div>
+
+        <div class="project-status">
+          <span class="status-dot"></span>
+          <span id="project-status">Awaiting engineering brief</span>
+        </div>
+
+        <div class="mode-switch" role="group" aria-label="Drawing mode">
+          <button class="mode-btn active" data-mode="3d">3D MODEL</button>
+          <button class="mode-btn" data-mode="plan">2D PLAN</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="input-panel">
+          <div class="panel-heading">
+            <p class="eyebrow">PROJECT DEFINITION</p>
+            <h1>Engineering brief</h1>
+            <p>Define the constraints first. Geometry is generated only after the design basis is complete.</p>
+          </div>
+
+          <nav class="stepper" aria-label="Engineering brief stages">
+            <button class="step-tab active" data-step="0"><span>01</span>Site</button>
+            <button class="step-tab" data-step="1"><span>02</span>Controls</button>
+            <button class="step-tab" data-step="2"><span>03</span>Programme</button>
+            <button class="step-tab" data-step="3"><span>04</span>System</button>
+          </nav>
+
+          <form id="engineering-form">
+            <section class="form-step active" data-step="0">
+              <div class="section-title">
+                <span>01</span>
+                <div><h2>Site geometry</h2><p>Survey-level inputs and access condition</p></div>
+              </div>
+              <label class="field full">
+                <span>Project name <i>IDENTIFIER</i></span>
+                <input name="projectName" value="Residence A-01" required />
+              </label>
+              <div class="field-grid">
+                <label class="field full">
+                  <span>Project location <i>JURISDICTION</i></span>
+                  <input name="location" value="Kolkata, West Bengal" required />
+                </label>
+                <label class="field">
+                  <span>Plot configuration</span>
+                  <select name="plotShape">
+                    <option value="rectangle">Rectangular</option>
+                    <option value="chamfer">Corner chamfer</option>
+                    <option value="l-shape">L-shaped</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Road / frontage</span>
+                  <select name="roadSide">
+                    <option value="south">South</option>
+                    <option value="east">East</option>
+                    <option value="north">North</option>
+                    <option value="west">West</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>East-West width <i>m</i></span>
+                  <input type="number" name="plotWidth" value="16" min="8" max="80" step="0.1" required />
+                </label>
+                <label class="field">
+                  <span>North-South depth <i>m</i></span>
+                  <input type="number" name="plotDepth" value="24" min="10" max="100" step="0.1" required />
+                </label>
+                <label class="field">
+                  <span>Road width <i>m</i></span>
+                  <input type="number" name="roadWidth" value="9" min="3" max="60" step="0.1" required />
+                </label>
+                <label class="field">
+                  <span>North rotation <i>deg</i></span>
+                  <input type="number" name="northRotation" value="0" min="-180" max="180" step="1" />
+                </label>
+              </div>
+              <div class="step-note"><strong>Required later:</strong> surveyed corner coordinates, contour levels, utilities, easements, adjoining structures and geotechnical report.</div>
+            </section>
+
+            <section class="form-step" data-step="1">
+              <div class="section-title">
+                <span>02</span>
+                <div><h2>Development controls</h2><p>Use sanctioned local values, not defaults</p></div>
+              </div>
+              <div class="field-grid">
+                <label class="field">
+                  <span>Front setback <i>m</i></span>
+                  <input type="number" name="frontSetback" value="3" min="0" max="15" step="0.1" required />
+                </label>
+                <label class="field">
+                  <span>Rear setback <i>m</i></span>
+                  <input type="number" name="rearSetback" value="2" min="0" max="15" step="0.1" required />
+                </label>
+                <label class="field">
+                  <span>Left setback <i>m</i></span>
+                  <input type="number" name="leftSetback" value="1.5" min="0" max="15" step="0.1" required />
+                </label>
+                <label class="field">
+                  <span>Right setback <i>m</i></span>
+                  <input type="number" name="rightSetback" value="1.5" min="0" max="15" step="0.1" required />
+                </label>
+                <label class="field">
+                  <span>Max. ground coverage <i>%</i></span>
+                  <input type="number" name="maxCoverage" value="55" min="20" max="90" step="1" required />
+                </label>
+                <label class="field">
+                  <span>Permissible FAR</span>
+                  <input type="number" name="maxFar" value="1.75" min="0.5" max="8" step="0.05" required />
+                </label>
+                <label class="field">
+                  <span>Proposed storeys</span>
+                  <input type="number" name="floors" value="2" min="1" max="6" step="1" required />
+                </label>
+                <label class="field">
+                  <span>Permitted height <i>m</i></span>
+                  <input type="number" name="maxHeight" value="12" min="3" max="60" step="0.1" required />
+                </label>
+              </div>
+              <label class="check-field"><input type="checkbox" name="authorityVerified" /><span><strong>Values verified against the local authority</strong><small>Keep unchecked for an academic or preliminary study.</small></span></label>
+            </section>
+
+            <section class="form-step" data-step="2">
+              <div class="section-title">
+                <span>03</span>
+                <div><h2>Space programme</h2><p>Occupancy, rooms and performance intent</p></div>
+              </div>
+              <div class="field-grid">
+                <label class="field">
+                  <span>Bedrooms</span>
+                  <input type="number" name="bedrooms" value="4" min="1" max="12" step="1" required />
+                </label>
+                <label class="field">
+                  <span>Toilets</span>
+                  <input type="number" name="toilets" value="3" min="1" max="12" step="1" required />
+                </label>
+                <label class="field">
+                  <span>Occupants</span>
+                  <input type="number" name="occupants" value="6" min="1" max="30" step="1" required />
+                </label>
+                <label class="field">
+                  <span>Car bays</span>
+                  <input type="number" name="parking" value="1" min="0" max="6" step="1" />
+                </label>
+                <label class="field">
+                  <span>Design character</span>
+                  <select name="style">
+                    <option value="climate-modern">Climate-responsive modern</option>
+                    <option value="contemporary">Contemporary</option>
+                    <option value="regional">Regional / courtyard</option>
+                    <option value="minimal">Minimal engineering expression</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Climate response</span>
+                  <select name="climate">
+                    <option value="warm-humid">Warm-humid</option>
+                    <option value="composite">Composite</option>
+                    <option value="hot-dry">Hot-dry</option>
+                    <option value="temperate">Temperate</option>
+                    <option value="cold">Cold</option>
+                  </select>
+                </label>
+              </div>
+              <div class="toggle-grid">
+                <label class="check-field"><input type="checkbox" name="study" checked /><span><strong>Study / work room</strong><small>Dedicated quiet space</small></span></label>
+                <label class="check-field"><input type="checkbox" name="utility" checked /><span><strong>Utility / wash</strong><small>Service adjacency to kitchen</small></span></label>
+                <label class="check-field"><input type="checkbox" name="accessible" /><span><strong>Accessible planning</strong><small>Step-free entry and larger circulation</small></span></label>
+                <label class="check-field"><input type="checkbox" name="futureExpansion" checked /><span><strong>Future expansion</strong><small>Retain structural continuity</small></span></label>
+              </div>
+            </section>
+
+            <section class="form-step" data-step="3">
+              <div class="section-title">
+                <span>04</span>
+                <div><h2>Structural basis</h2><p>Concept assumptions for preliminary coordination</p></div>
+              </div>
+              <div class="field-grid">
+                <label class="field full">
+                  <span>Primary structural system</span>
+                  <select name="structuralSystem">
+                    <option value="rcc-frame">RCC moment-resisting frame</option>
+                    <option value="load-bearing">Confined / load-bearing masonry</option>
+                    <option value="steel-frame">Steel frame with infill</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Floor-to-floor height <i>m</i></span>
+                  <input type="number" name="floorHeight" value="3.3" min="2.7" max="5" step="0.05" required />
+                </label>
+                <label class="field">
+                  <span>Target grid span <i>m</i></span>
+                  <input type="number" name="gridSpan" value="4" min="2.5" max="8" step="0.1" required />
+                </label>
+                <label class="field">
+                  <span>External wall <i>mm</i></span>
+                  <input type="number" name="externalWall" value="200" min="100" max="450" step="5" required />
+                </label>
+                <label class="field">
+                  <span>Internal wall <i>mm</i></span>
+                  <input type="number" name="internalWall" value="115" min="75" max="300" step="5" required />
+                </label>
+                <label class="field">
+                  <span>Allowable SBC <i>kN/m²</i></span>
+                  <input type="number" name="sbc" value="150" min="25" max="1000" step="5" required />
+                </label>
+                <label class="field">
+                  <span>Seismic zone</span>
+                  <select name="seismicZone"><option>II</option><option selected>III</option><option>IV</option><option>V</option></select>
+                </label>
+              </div>
+              <div class="step-note warning"><strong>Concept-stage only:</strong> member sizes and foundations shown are coordination placeholders. Analysis, load combinations, detailing and geotechnical design are deliberately not auto-certified.</div>
+            </section>
+
+            <div class="form-actions">
+              <button type="button" class="secondary-btn" id="previous-step" disabled>BACK</button>
+              <button type="button" class="primary-btn" id="next-step">CONTINUE <span>→</span></button>
+              <button type="submit" class="primary-btn generate-btn" id="generate-design">GENERATE CONCEPT <span>↗</span></button>
+            </div>
+          </form>
+        </aside>
+
+        <section class="viewport-shell">
+          <canvas id="model-canvas" aria-label="Interactive three-dimensional building model"></canvas>
+          <canvas id="plan-canvas" aria-label="Generated two-dimensional building plan"></canvas>
+
+          <div class="viewport-empty" id="viewport-empty">
+            <div class="empty-diagram" aria-hidden="true"><span></span><span></span><span></span></div>
+            <p class="eyebrow">PARAMETRIC WORKSPACE</p>
+            <h2>Complete the engineering brief</h2>
+            <p>The generator will build one coordinated model for massing, spatial planning, preliminary quantities and drawing output.</p>
+          </div>
+
+          <div class="view-toolbar" id="view-toolbar">
+            <button data-view="perspective" class="active">PERSPECTIVE</button>
+            <button data-view="top">TOP</button>
+            <button data-view="front">FRONT</button>
+            <span></span>
+            <button id="toggle-roof">ROOF: OFF</button>
+            <label class="plan-level-control" for="plan-level">SHEET <select id="plan-level" aria-label="Plan level"></select></label>
+            <button id="download-plan">EXPORT PNG</button>
+          </div>
+
+          <div class="constraint-banner" id="constraint-banner" hidden>
+            <strong>REGULATORY ADJUSTMENT</strong>
+            <span id="constraint-message"></span>
+            <button id="open-constraint-checks">VIEW CHECKS</button>
+          </div>
+
+          <div class="model-readout" id="model-readout">
+            <div><span>GROUND COVERAGE</span><strong id="metric-coverage">--</strong></div>
+            <div><span>PROPOSED FAR</span><strong id="metric-far">--</strong></div>
+            <div><span>BUILT-UP AREA</span><strong id="metric-area">--</strong></div>
+            <div><span>CONCEPT STATUS</span><strong id="metric-status">--</strong></div>
+          </div>
+
+          <aside class="analysis-panel" id="analysis-panel">
+            <div class="analysis-header">
+              <div><p class="eyebrow">DESIGN EXPLAINABILITY</p><h2>Decision register</h2></div>
+              <button id="close-analysis" aria-label="Close analysis">×</button>
+            </div>
+            <div class="analysis-tabs">
+              <button class="active" data-analysis="decisions">RATIONALE</button>
+              <button data-analysis="checks">CHECKS</button>
+              <button data-analysis="schedule">ROOMS</button>
+            </div>
+            <div class="analysis-content" id="analysis-content"></div>
+          </aside>
+          <button class="analysis-trigger" id="open-analysis">DESIGN LOG <span id="decision-count">0</span></button>
+        </section>
+      </main>
+
+      <footer class="legal-strip">
+        <span>VASTU ENGINEERING STUDIO / ALPHA</span>
+        <span>Concept generation only. Verify local bye-laws and obtain licensed architectural and structural approval before construction.</span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
