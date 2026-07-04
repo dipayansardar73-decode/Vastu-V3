@@ -271,6 +271,123 @@ function createGrid(input, footprint) {
   };
 }
 
+function edgeKey(a, b) {
+  return [
+    `${a.x.toFixed(3)},${a.z.toFixed(3)}`,
+    `${b.x.toFixed(3)},${b.z.toFixed(3)}`,
+  ].sort().join('|');
+}
+
+function sameLine(a, b, c, d) {
+  const cross1 = Math.abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x));
+  const cross2 = Math.abs((b.x - a.x) * (d.z - a.z) - (b.z - a.z) * (d.x - a.x));
+  return cross1 < 0.01 && cross2 < 0.01;
+}
+
+function segmentOverlaps(a, b, c, d) {
+  if (!sameLine(a, b, c, d)) return false;
+  const useX = Math.abs(b.x - a.x) >= Math.abs(b.z - a.z);
+  const a0 = useX ? a.x : a.z;
+  const a1 = useX ? b.x : b.z;
+  const c0 = useX ? c.x : c.z;
+  const c1 = useX ? d.x : d.z;
+  const minA = Math.min(a0, a1);
+  const maxA = Math.max(a0, a1);
+  const minC = Math.min(c0, c1);
+  const maxC = Math.max(c0, c1);
+  return Math.min(maxA, maxC) - Math.max(minA, minC) > 0.25;
+}
+
+function isExteriorRoomEdge(a, b, footprint) {
+  return footprint.some((point, index) => segmentOverlaps(a, b, point, footprint[(index + 1) % footprint.length]));
+}
+
+function roomEdges(room) {
+  const x0 = room.x;
+  const x1 = room.x + room.w;
+  const z0 = room.z;
+  const z1 = room.z + room.d;
+  return [
+    { a: { x: x0, z: z0 }, b: { x: x1, z: z0 }, side: 'south' },
+    { a: { x: x1, z: z0 }, b: { x: x1, z: z1 }, side: 'east' },
+    { a: { x: x1, z: z1 }, b: { x: x0, z: z1 }, side: 'north' },
+    { a: { x: x0, z: z1 }, b: { x: x0, z: z0 }, side: 'west' },
+  ];
+}
+
+function openingNormal(a, b) {
+  const length = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+  return { x: -(b.z - a.z) / length, z: (b.x - a.x) / length };
+}
+
+function createOpenings(input, footprint, roomsByFloor) {
+  const openings = [];
+  const habitable = new Set(['living', 'dining', 'bedroom', 'study', 'lounge']);
+  const service = new Set(['toilet', 'utility', 'kitchen']);
+
+  roomsByFloor.forEach((rooms, floor) => {
+    rooms.forEach((room) => {
+      roomEdges(room).forEach(({ a, b, side }) => {
+        if (!isExteriorRoomEdge(a, b, footprint)) return;
+        const length = Math.hypot(b.x - a.x, b.z - a.z);
+        if (length < 1.2) return;
+        const tangent = { x: (b.x - a.x) / length, z: (b.z - a.z) / length };
+        const normal = openingNormal(a, b);
+        const center = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
+        const frontEdge = side === input.roadSide;
+        let type = null;
+        let width = 1.2;
+        let height = 1.2;
+        let sill = 0.9;
+        let count = 1;
+
+        if (floor === 0 && frontEdge && ['entry', 'living'].includes(room.type)) {
+          type = 'main-door';
+          width = 1.15;
+          height = 2.15;
+          sill = 0;
+        } else if (floor === 0 && ['kitchen', 'utility'].includes(room.type)) {
+          type = 'service-door';
+          width = 0.9;
+          height = 2.05;
+          sill = 0;
+        } else if (habitable.has(room.type)) {
+          type = 'window';
+          width = clamp((input.windowRatio / 100) * Math.min(length, 5.5), 0.9, 2.1);
+          height = input.facadeSystem === 'glass-band' ? 1.55 : 1.25;
+          count = length > 5.4 ? 2 : 1;
+        } else if (service.has(room.type)) {
+          type = 'ventilator';
+          width = clamp(length * 0.25, 0.55, 0.9);
+          height = 0.55;
+          sill = 1.55;
+        }
+
+        if (!type) return;
+        for (let index = 0; index < count; index += 1) {
+          const t = count === 1 ? 0.5 : 0.34 + index * 0.32;
+          const point = { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
+          openings.push({
+            id: `${room.id}-O${index + 1}`,
+            floor,
+            roomId: room.id,
+            roomType: room.type,
+            type,
+            width,
+            height,
+            sill,
+            side,
+            point,
+            tangent,
+            normal,
+          });
+        }
+      });
+    });
+  });
+  return openings;
+}
+
 function createChecks(input, requestedInput, metrics, rooms, grid, adjustments) {
   const minimumRoomDimension = Math.min(...rooms.filter((room) => !['toilet', 'utility', 'balcony'].includes(room.type)).map((room) => Math.min(room.w, room.d)));
   const checks = [
@@ -456,6 +573,7 @@ export function generateDesign(input) {
   const checks = createChecks(resolvedInput, requestedInput, metrics, rooms, grid, adjustments);
   const quantities = createQuantities(resolvedInput, footprint, grid, roomsByFloor);
   const structural = createStructuralAnalysis(resolvedInput, footprint, grid, roomsByFloor);
+  const openings = createOpenings(resolvedInput, footprint, roomsByFloor);
 
   return {
     input: resolvedInput,
@@ -466,6 +584,7 @@ export function generateDesign(input) {
     footprintBounds: boundsOf(footprint),
     zones,
     roomsByFloor,
+    openings,
     grid,
     metrics,
     checks,

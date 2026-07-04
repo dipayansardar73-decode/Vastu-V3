@@ -14,6 +14,9 @@ VASTU is a constraint-aware concept-design environment for civil-engineering wor
 - One-click level-by-level 2D plan and PNG export
 - Professional-grade intake for survey, geotech, fire access, drainage, façade, materials, and local market-rate assumptions
 - Conceptual X-ray mode for load-path, column/beam/slab/stair/wall heat visualization
+- Room-aware door, window, service-door, and ventilator placement shared by the 3D model and 2D drawing
+- Terrace roof with parapet, stair headroom, water tank, and solar/service equipment
+- Cleaner software-style command menu and improved 2D sheet scaling/annotation
 - Design rationale, room schedule, assumptions, and mandatory professional checks
 
 This release is for academic and professional **concept coordination**. It does not replace local authority approval, architectural services, structural analysis, geotechnical design, fire and life-safety design, MEP engineering, or construction drawings.

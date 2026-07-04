@@ -30,10 +30,10 @@ export class DraftingCanvas {
     this.context.fillRect(0, 0, cssWidth, cssHeight);
 
     const extents = this.getExtents(design);
-    const titleWidth = Math.min(290, cssWidth * 0.24);
+    const titleWidth = Math.min(330, cssWidth * 0.27);
     const drawingWidth = cssWidth - titleWidth - 80;
-    const drawingHeight = cssHeight - 100;
-    const scale = Math.min(drawingWidth / (extents.width + 8), drawingHeight / (extents.depth + 8));
+    const drawingHeight = cssHeight - 110;
+    const scale = Math.min(drawingWidth / (extents.width + 10), drawingHeight / (extents.depth + 10));
     this.transform = {
       scale,
       originX: 40 + drawingWidth / 2 - ((extents.xMin + extents.xMax) / 2) * scale,
@@ -55,6 +55,12 @@ export class DraftingCanvas {
   getExtents(design) {
     const xs = design.plotPolygon.map((point) => point.x);
     const zs = design.plotPolygon.map((point) => point.z);
+    const halfW = design.input.plotWidth / 2;
+    const halfD = design.input.plotDepth / 2;
+    if (design.input.roadSide === 'south') zs.push(-halfD - design.input.roadWidth);
+    if (design.input.roadSide === 'north') zs.push(halfD + design.input.roadWidth);
+    if (design.input.roadSide === 'east') xs.push(halfW + design.input.roadWidth);
+    if (design.input.roadSide === 'west') xs.push(-halfW - design.input.roadWidth);
     return {
       xMin: Math.min(...xs), xMax: Math.max(...xs),
       zMin: Math.min(...zs), zMax: Math.max(...zs),
@@ -126,6 +132,7 @@ export class DraftingCanvas {
     design.plotPolygon.forEach((point, index) => {
       const next = design.plotPolygon[(index + 1) % design.plotPolygon.length];
       const distance = Math.hypot(next.x - point.x, next.z - point.z);
+      if (distance * this.transform.scale < 58) return;
       this.text(distance.toFixed(2), (point.x + next.x) / 2, (point.z + next.z) / 2, 8, MUTED, 'center', '#f3f0e8');
     });
   }
@@ -150,13 +157,13 @@ export class DraftingCanvas {
       context.beginPath();
       context.rect(x + 2, y + 2, Math.max(0, width - 4), Math.max(0, height - 4));
       context.clip();
-      if (width > 78 && height > 44) {
+      if (width > 105 && height > 58) {
         const nameSize = Math.max(7, Math.min(9, width / Math.max(room.name.length, 8) * 1.45));
         this.text(room.name.toUpperCase(), room.center.x, room.center.z + 0.17, nameSize, INK, 'center');
         this.text(`${room.w.toFixed(2)} × ${room.d.toFixed(2)}  |  ${room.area.toFixed(1)} m²`, room.center.x, room.center.z - 0.18, 6.8, MUTED, 'center');
-      } else if (width > 48 && height > 27) {
+      } else if (width > 66 && height > 38) {
         this.text(room.name.toUpperCase(), room.center.x, room.center.z, 6.8, INK, 'center');
-      } else {
+      } else if (width > 34 && height > 20) {
         this.text(room.id, room.center.x, room.center.z, 6.5, INK, 'center');
       }
       context.restore();
@@ -171,31 +178,36 @@ export class DraftingCanvas {
       context.fillRect(this.x(column.x) - size / 2, this.y(column.z) - size / 2, size, size);
     });
     design.grid.xs.forEach((x, index) => {
-      this.text(String(index + 1), x, design.footprintBounds.zMin - 0.75, 8, ACCENT, 'center', PAPER);
+      this.text(String(index + 1), x, design.footprintBounds.zMin - 0.95, 8, ACCENT, 'center', PAPER);
     });
     design.grid.zs.forEach((z, index) => {
-      this.text(String.fromCharCode(65 + index), design.footprintBounds.xMin - 0.75, z, 8, ACCENT, 'center', PAPER);
+      this.text(String.fromCharCode(65 + index), design.footprintBounds.xMin - 0.95, z, 8, ACCENT, 'center', PAPER);
     });
   }
 
   drawOpenings(design) {
-    const input = design.input;
-    design.footprint.forEach((point, index) => {
-      const next = design.footprint[(index + 1) % design.footprint.length];
-      const length = Math.hypot(next.x - point.x, next.z - point.z);
-      const count = Math.max(1, Math.floor(length / 3.4));
-      for (let opening = 1; opening <= count; opening += 1) {
-        const t = opening / (count + 1);
-        const center = { x: point.x + (next.x - point.x) * t, z: point.z + (next.z - point.z) * t };
-        const tangent = { x: (next.x - point.x) / length, z: (next.z - point.z) / length };
-        const width = 1.35;
-        const a = { x: center.x - tangent.x * width / 2, z: center.z - tangent.z * width / 2 };
-        const b = { x: center.x + tangent.x * width / 2, z: center.z + tangent.z * width / 2 };
-        this.line(a, b, { color: '#2f7f86', width: 4 });
-        this.line(a, b, { color: PAPER, width: 1 });
+    const context = this.context;
+    design.openings.filter((opening) => opening.floor === this.floorIndex).forEach((opening) => {
+      const half = opening.width / 2;
+      const a = { x: opening.point.x - opening.tangent.x * half, z: opening.point.z - opening.tangent.z * half };
+      const b = { x: opening.point.x + opening.tangent.x * half, z: opening.point.z + opening.tangent.z * half };
+      const color = opening.type.includes('door') ? ACCENT : '#2f7f86';
+      this.line(a, b, { color: PAPER, width: opening.type.includes('door') ? 6 : 5 });
+      this.line(a, b, { color, width: opening.type.includes('door') ? 2 : 3 });
+      if (opening.type.includes('door')) {
+        const hinge = a;
+        const radius = opening.width;
+        context.save();
+        context.beginPath();
+        context.strokeStyle = ACCENT;
+        context.lineWidth = 0.8;
+        context.setLineDash([3, 3]);
+        context.arc(this.x(hinge.x), this.y(hinge.z), radius * this.transform.scale, -Math.PI / 2, 0);
+        context.stroke();
+        context.restore();
       }
     });
-    const front = this.frontMidpoint(design.footprintBounds, input.roadSide);
+    const front = this.frontMidpoint(design.footprintBounds, design.input.roadSide);
     this.text('MAIN ENTRY', front.x, front.z, 7.5, ACCENT, 'center', PAPER);
   }
 
@@ -270,12 +282,13 @@ export class DraftingCanvas {
     write(`PROPOSED FAR    ${design.metrics.far.toFixed(2)}`, 8);
     write(`STOREYS          G + ${design.input.floors - 1}`, 8);
     write(`STRUCTURE        ${design.input.structuralSystem.toUpperCase()}`, 8);
+    write(`OPENINGS         ${design.openings.filter((opening) => opening.floor === this.floorIndex).length} SCHEDULED`, 8);
     y += 16;
     write('PRELIMINARY QUANTITIES', 7, MUTED, 600);
     write(`CONCRETE         ${design.quantities.concrete.toFixed(1)} m³`, 8);
     write(`MASONRY          ${design.quantities.masonry.toFixed(1)} m³`, 8);
     write(`REINFORCEMENT    ${design.quantities.reinforcement.toFixed(0)} kg`, 8);
-    y = this.height - 126;
+    y = this.height - 140;
     write('STATUS', 7, MUTED, 600);
     write('CONCEPT / NOT FOR CONSTRUCTION', 9, '#9f4e38', 700);
     write('Verify dimensions, regulations,', 7, MUTED, 500);

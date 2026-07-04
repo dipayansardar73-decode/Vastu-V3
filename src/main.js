@@ -16,6 +16,7 @@ const generateButton = document.querySelector('#generate-design');
 const planLevelSelect = document.querySelector('#plan-level');
 const constraintBanner = document.querySelector('#constraint-banner');
 const componentFocus = document.querySelector('#component-focus');
+const roofButton = document.querySelector('#toggle-roof');
 
 let currentStep = 0;
 let currentMode = '3d';
@@ -113,6 +114,11 @@ function setMode(mode) {
   viewport.dataset.mode = mode;
   document.querySelectorAll('.mode-btn').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));
   if (mode === 'plan' && design) requestAnimationFrame(() => drafting.render(design, currentPlanFloor));
+  if (mode === 'plan' && currentAnalysis === 'xray') {
+    currentAnalysis = 'schedule';
+    document.querySelectorAll('[data-analysis]').forEach((item) => item.classList.toggle('active', item.dataset.analysis === currentAnalysis));
+    renderAnalysis();
+  }
   if (mode === 'xray' && design) {
     scene.setXray(true, componentFocus.value);
     currentAnalysis = 'xray';
@@ -248,6 +254,7 @@ function generate() {
     design = generateDesign(readEngineeringInput());
     scene.renderDesign(design);
     scene.setXray(false, componentFocus.value);
+    roofButton.textContent = `ROOF: ${scene.roofVisible ? 'ON' : 'OFF'}`;
     currentPlanFloor = 0;
     updatePlanLevels();
     drafting.render(design, currentPlanFloor);
@@ -293,7 +300,7 @@ document.querySelectorAll('[data-view]').forEach((button) => button.addEventList
   scene.setView(button.dataset.view);
 }));
 
-document.querySelector('#toggle-roof').addEventListener('click', (event) => {
+roofButton.addEventListener('click', (event) => {
   const visible = scene.toggleRoof();
   event.currentTarget.textContent = `ROOF: ${visible ? 'ON' : 'OFF'}`;
 });

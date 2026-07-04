@@ -13,23 +13,30 @@
   <body>
     <div id="app">
       <header class="topbar">
-        <div class="brand-lockup">
-          <div class="brand-mark" aria-hidden="true"><span></span><span></span></div>
-          <div>
-            <strong>VASTU</strong>
-            <small>Engineering Studio / Concept Design</small>
+        <nav class="app-menu" aria-label="Application menu">
+          <button>File</button><button>Project</button><button>Survey</button><button>Planning</button>
+          <button>Structure</button><button>Services</button><button>Analysis</button><button>Drawings</button>
+          <button>Quantities</button><button>Reports</button><button>Settings</button>
+        </nav>
+        <div class="topbar-main">
+          <div class="brand-lockup">
+            <div class="brand-mark" aria-hidden="true"><span></span><span></span></div>
+            <div>
+              <strong>VASTU</strong>
+              <small>Integrated Building Engineering Studio</small>
+            </div>
           </div>
-        </div>
 
-        <div class="project-status">
-          <span class="status-dot"></span>
-          <span id="project-status">Awaiting engineering brief</span>
-        </div>
+          <div class="project-status">
+            <span class="status-dot"></span>
+            <span id="project-status">Awaiting engineering brief</span>
+          </div>
 
-        <div class="mode-switch" role="group" aria-label="Drawing mode">
-          <button class="mode-btn active" data-mode="3d">3D MODEL</button>
-          <button class="mode-btn" data-mode="plan">2D PLAN</button>
-          <button class="mode-btn" data-mode="xray">X-RAY</button>
+          <div class="mode-switch" role="group" aria-label="Drawing mode">
+            <button class="mode-btn active" data-mode="3d">3D MODEL</button>
+            <button class="mode-btn" data-mode="plan">2D PLAN</button>
+            <button class="mode-btn" data-mode="xray">X-RAY</button>
+          </div>
         </div>
       </header>
 
