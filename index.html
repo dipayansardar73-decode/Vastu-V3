@@ -29,6 +29,7 @@
         <div class="mode-switch" role="group" aria-label="Drawing mode">
           <button class="mode-btn active" data-mode="3d">3D MODEL</button>
           <button class="mode-btn" data-mode="plan">2D PLAN</button>
+          <button class="mode-btn" data-mode="xray">X-RAY</button>
         </div>
       </header>
 
@@ -95,6 +96,27 @@
                   <span>North rotation <i>deg</i></span>
                   <input type="number" name="northRotation" value="0" min="-180" max="180" step="1" />
                 </label>
+                <label class="field">
+                  <span>Contour interval <i>m</i></span>
+                  <input type="number" name="contourInterval" value="0.5" min="0" max="5" step="0.1" />
+                </label>
+                <label class="field">
+                  <span>Site slope <i>%</i></span>
+                  <input type="number" name="siteSlope" value="1.2" min="0" max="25" step="0.1" />
+                </label>
+                <label class="field">
+                  <span>Ground water depth <i>m</i></span>
+                  <input type="number" name="waterTable" value="4" min="0.5" max="30" step="0.1" />
+                </label>
+                <label class="field">
+                  <span>Soil class</span>
+                  <select name="soilClass">
+                    <option value="medium">Medium dense sand / stiff clay</option>
+                    <option value="soft">Soft clay / loose fill</option>
+                    <option value="rocky">Weathered rock / hard strata</option>
+                    <option value="expansive">Expansive black cotton soil</option>
+                  </select>
+                </label>
               </div>
               <div class="step-note"><strong>Required later:</strong> surveyed corner coordinates, contour levels, utilities, easements, adjoining structures and geotechnical report.</div>
             </section>
@@ -136,6 +158,22 @@
                 <label class="field">
                   <span>Permitted height <i>m</i></span>
                   <input type="number" name="maxHeight" value="12" min="3" max="60" step="0.1" required />
+                </label>
+                <label class="field">
+                  <span>Fire tender access <i>m</i></span>
+                  <input type="number" name="fireAccessWidth" value="6" min="0" max="12" step="0.1" />
+                </label>
+                <label class="field">
+                  <span>Exit stair width <i>m</i></span>
+                  <input type="number" name="stairWidth" value="1.2" min="0.75" max="3" step="0.05" />
+                </label>
+                <label class="field">
+                  <span>Landscape/open area <i>%</i></span>
+                  <input type="number" name="softscape" value="18" min="0" max="70" step="1" />
+                </label>
+                <label class="field">
+                  <span>Rain intensity <i>mm/hr</i></span>
+                  <input type="number" name="rainIntensity" value="75" min="20" max="250" step="5" />
                 </label>
               </div>
               <label class="check-field"><input type="checkbox" name="authorityVerified" /><span><strong>Values verified against the local authority</strong><small>Keep unchecked for an academic or preliminary study.</small></span></label>
@@ -181,6 +219,19 @@
                     <option value="temperate">Temperate</option>
                     <option value="cold">Cold</option>
                   </select>
+                </label>
+                <label class="field">
+                  <span>Envelope realism</span>
+                  <select name="facadeSystem">
+                    <option value="punched">Punched windows + balconies</option>
+                    <option value="deep-shade">Deep shaded verandah facade</option>
+                    <option value="glass-band">Controlled glass band</option>
+                    <option value="traditional">Regional shaded openings</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Window-wall ratio <i>%</i></span>
+                  <input type="number" name="windowRatio" value="28" min="10" max="65" step="1" />
                 </label>
               </div>
               <div class="toggle-grid">
@@ -229,6 +280,46 @@
                   <span>Seismic zone</span>
                   <select name="seismicZone"><option>II</option><option selected>III</option><option>IV</option><option>V</option></select>
                 </label>
+                <label class="field">
+                  <span>Concrete grade</span>
+                  <select name="concreteGrade"><option>M20</option><option selected>M25</option><option>M30</option><option>M35</option></select>
+                </label>
+                <label class="field">
+                  <span>Steel grade</span>
+                  <select name="steelGrade"><option>Fe415</option><option selected>Fe500</option><option>Fe550</option></select>
+                </label>
+                <label class="field">
+                  <span>Live load <i>kN/m²</i></span>
+                  <input type="number" name="liveLoad" value="2" min="1.5" max="5" step="0.25" />
+                </label>
+                <label class="field">
+                  <span>Slab thickness <i>mm</i></span>
+                  <input type="number" name="slabThickness" value="125" min="100" max="250" step="5" />
+                </label>
+                <label class="field">
+                  <span>Beam depth <i>mm</i></span>
+                  <input type="number" name="beamDepth" value="450" min="250" max="900" step="10" />
+                </label>
+                <label class="field">
+                  <span>Column size <i>mm</i></span>
+                  <input type="number" name="columnSize" value="300" min="230" max="750" step="10" />
+                </label>
+                <label class="field">
+                  <span>Cement rate <i>₹/bag</i></span>
+                  <input type="number" name="cementRate" value="420" min="100" max="1200" step="10" />
+                </label>
+                <label class="field">
+                  <span>Steel rate <i>₹/kg</i></span>
+                  <input type="number" name="steelRate" value="62" min="25" max="180" step="1" />
+                </label>
+                <label class="field">
+                  <span>Brick/block rate <i>₹/m³</i></span>
+                  <input type="number" name="masonryRate" value="6200" min="1500" max="20000" step="100" />
+                </label>
+                <label class="field">
+                  <span>Location cost index</span>
+                  <input type="number" name="locationCostIndex" value="1.05" min="0.6" max="2.5" step="0.01" />
+                </label>
               </div>
               <div class="step-note warning"><strong>Concept-stage only:</strong> member sizes and foundations shown are coordination placeholders. Analysis, load combinations, detailing and geotechnical design are deliberately not auto-certified.</div>
             </section>
@@ -258,6 +349,15 @@
             <button data-view="front">FRONT</button>
             <span></span>
             <button id="toggle-roof">ROOF: OFF</button>
+            <button id="toggle-xray">XRAY: LOAD</button>
+            <label class="plan-level-control xray-control" for="component-focus">COMPONENT <select id="component-focus" aria-label="Component focus">
+              <option value="all">ALL SYSTEMS</option>
+              <option value="slab">SLABS</option>
+              <option value="beam">BEAMS</option>
+              <option value="column">COLUMNS</option>
+              <option value="stair">STAIR CORE</option>
+              <option value="wall">WALLS</option>
+            </select></label>
             <label class="plan-level-control" for="plan-level">SHEET <select id="plan-level" aria-label="Plan level"></select></label>
             <button id="download-plan">EXPORT PNG</button>
           </div>
@@ -284,6 +384,9 @@
               <button class="active" data-analysis="decisions">RATIONALE</button>
               <button data-analysis="checks">CHECKS</button>
               <button data-analysis="schedule">ROOMS</button>
+              <button data-analysis="xray">X-RAY</button>
+              <button data-analysis="cost">COST</button>
+              <button data-analysis="spec">SPEC</button>
             </div>
             <div class="analysis-content" id="analysis-content"></div>
           </aside>

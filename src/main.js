@@ -15,6 +15,7 @@ const nextButton = document.querySelector('#next-step');
 const generateButton = document.querySelector('#generate-design');
 const planLevelSelect = document.querySelector('#plan-level');
 const constraintBanner = document.querySelector('#constraint-banner');
+const componentFocus = document.querySelector('#component-focus');
 
 let currentStep = 0;
 let currentMode = '3d';
@@ -37,6 +38,10 @@ function readEngineeringInput() {
     plotDepth: numberValue(data, 'plotDepth'),
     roadWidth: numberValue(data, 'roadWidth'),
     northRotation: numberValue(data, 'northRotation'),
+    contourInterval: numberValue(data, 'contourInterval'),
+    siteSlope: numberValue(data, 'siteSlope'),
+    waterTable: numberValue(data, 'waterTable'),
+    soilClass: data.get('soilClass'),
     frontSetback: numberValue(data, 'frontSetback'),
     rearSetback: numberValue(data, 'rearSetback'),
     leftSetback: numberValue(data, 'leftSetback'),
@@ -45,6 +50,10 @@ function readEngineeringInput() {
     maxFar: numberValue(data, 'maxFar'),
     floors: numberValue(data, 'floors'),
     maxHeight: numberValue(data, 'maxHeight'),
+    fireAccessWidth: numberValue(data, 'fireAccessWidth'),
+    stairWidth: numberValue(data, 'stairWidth'),
+    softscape: numberValue(data, 'softscape'),
+    rainIntensity: numberValue(data, 'rainIntensity'),
     authorityVerified: data.has('authorityVerified'),
     bedrooms: numberValue(data, 'bedrooms'),
     toilets: numberValue(data, 'toilets'),
@@ -52,6 +61,8 @@ function readEngineeringInput() {
     parking: numberValue(data, 'parking'),
     style: data.get('style'),
     climate: data.get('climate'),
+    facadeSystem: data.get('facadeSystem'),
+    windowRatio: numberValue(data, 'windowRatio'),
     study: data.has('study'),
     utility: data.has('utility'),
     accessible: data.has('accessible'),
@@ -63,6 +74,16 @@ function readEngineeringInput() {
     internalWall: numberValue(data, 'internalWall'),
     sbc: numberValue(data, 'sbc'),
     seismicZone: data.get('seismicZone'),
+    concreteGrade: data.get('concreteGrade'),
+    steelGrade: data.get('steelGrade'),
+    liveLoad: numberValue(data, 'liveLoad'),
+    slabThickness: numberValue(data, 'slabThickness'),
+    beamDepth: numberValue(data, 'beamDepth'),
+    columnSize: numberValue(data, 'columnSize'),
+    cementRate: numberValue(data, 'cementRate'),
+    steelRate: numberValue(data, 'steelRate'),
+    masonryRate: numberValue(data, 'masonryRate'),
+    locationCostIndex: numberValue(data, 'locationCostIndex'),
   };
 }
 
@@ -92,6 +113,14 @@ function setMode(mode) {
   viewport.dataset.mode = mode;
   document.querySelectorAll('.mode-btn').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));
   if (mode === 'plan' && design) requestAnimationFrame(() => drafting.render(design, currentPlanFloor));
+  if (mode === 'xray' && design) {
+    scene.setXray(true, componentFocus.value);
+    currentAnalysis = 'xray';
+    document.querySelectorAll('[data-analysis]').forEach((item) => item.classList.toggle('active', item.dataset.analysis === 'xray'));
+    renderAnalysis();
+  } else if (design) {
+    scene.setXray(false, componentFocus.value);
+  }
 }
 
 function updateMetrics() {
@@ -154,6 +183,53 @@ function renderAnalysis() {
           </article>
         `).join('')}
       </div>`;
+  } else if (currentAnalysis === 'xray') {
+    analysisContent.innerHTML = `
+      <div class="analysis-list">
+        <article class="quantity-card xray-card">
+          <span>CONCEPTUAL STRUCTURAL X-RAY</span>
+          <div><strong>${design.structural.gravityLoad}</strong><small>kN/m² service gravity load</small></div>
+          <div><strong>${design.structural.seismicBaseShear}</strong><small>kN seismic base shear proxy</small></div>
+          <div><strong>${design.structural.foundationPressure}</strong><small>kN/m² footing pressure proxy</small></div>
+          <p>${design.structural.disclaimer}</p>
+        </article>
+        ${design.structural.components.map((component) => `
+          <article class="check-card component-card">
+            <div><span class="demand-chip" style="--demand:${component.demand}">${Math.round(component.demand * 100)}%</span><h3>${component.label}</h3></div>
+            <strong>${component.type.toUpperCase()} ANALYSIS LAYER</strong>
+            <p>${component.note}</p>
+          </article>
+        `).join('')}
+      </div>`;
+  } else if (currentAnalysis === 'cost') {
+    analysisContent.innerHTML = `
+      <div class="analysis-list">
+        <article class="quantity-card">
+          <span>LOCATION MATERIAL COST MODEL</span>
+          <div><strong>₹${design.cost.total.toLocaleString('en-IN')}</strong><small>concept package</small></div>
+          <div><strong>₹${design.cost.costPerSqm.toLocaleString('en-IN')}</strong><small>per m² built-up</small></div>
+          <div><strong>${design.input.locationCostIndex}</strong><small>location index</small></div>
+          <p>${design.cost.note}</p>
+        </article>
+        ${[
+          ['Concrete package', design.cost.concreteCost],
+          ['Reinforcement steel', design.cost.steelCost],
+          ['Masonry/blockwork', design.cost.masonryCost],
+          ['Facade/openings', design.cost.envelopeCost],
+          ['MEP/services allowance', design.cost.servicesCost],
+        ].map(([label, value]) => `<article class="check-card"><div><h3>${label}</h3></div><strong>₹${value.toLocaleString('en-IN')}</strong><p>Calculated from generated quantities and editable local market rates.</p></article>`).join('')}
+      </div>`;
+  } else if (currentAnalysis === 'spec') {
+    analysisContent.innerHTML = `
+      <div class="checks-list">
+        ${design.specifications.map((item) => `
+          <article class="check-card">
+            <div><span class="check-status mandatory">${item.category}</span><h3>${item.status}</h3></div>
+            <strong>${item.item}</strong>
+            <p>Required project information for professional design coordination and later approvals.</p>
+          </article>
+        `).join('')}
+      </div>`;
   } else {
     analysisContent.innerHTML = design.roomsByFloor.map((rooms, floor) => `
       <section class="room-floor">
@@ -171,6 +247,7 @@ function generate() {
     statusText.textContent = 'Generating coordinated concept…';
     design = generateDesign(readEngineeringInput());
     scene.renderDesign(design);
+    scene.setXray(false, componentFocus.value);
     currentPlanFloor = 0;
     updatePlanLevels();
     drafting.render(design, currentPlanFloor);
@@ -219,6 +296,17 @@ document.querySelectorAll('[data-view]').forEach((button) => button.addEventList
 document.querySelector('#toggle-roof').addEventListener('click', (event) => {
   const visible = scene.toggleRoof();
   event.currentTarget.textContent = `ROOF: ${visible ? 'ON' : 'OFF'}`;
+});
+document.querySelector('#toggle-xray').addEventListener('click', (event) => {
+  if (!design) return;
+  setMode(currentMode === 'xray' ? '3d' : 'xray');
+  event.currentTarget.textContent = `XRAY: ${currentMode === 'xray' ? componentFocus.value.toUpperCase() : 'LOAD'}`;
+});
+componentFocus.addEventListener('change', () => {
+  if (!design) return;
+  scene.setXray(currentMode === 'xray', componentFocus.value);
+  if (currentMode !== 'xray') setMode('xray');
+  document.querySelector('#toggle-xray').textContent = `XRAY: ${componentFocus.value.toUpperCase()}`;
 });
 document.querySelector('#download-plan').addEventListener('click', () => {
   if (!design) return;

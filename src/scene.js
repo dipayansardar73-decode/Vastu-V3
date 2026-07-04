@@ -12,7 +12,12 @@ const COLORS = {
   steel: 0x444c4a,
   glazing: 0x7eb6b0,
   road: 0x242a28,
+  heatLow: 0x3abf8f,
+  heatMid: 0xe2a33f,
+  heatHigh: 0xd84b37,
 };
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 function shapeFromPolygon(points) {
   const shape = new THREE.Shape();
@@ -118,7 +123,10 @@ export class EngineeringScene {
     this.modelRoot = new THREE.Group();
     this.scene.add(this.modelRoot);
     this.roofGroup = null;
+    this.xrayGroup = null;
     this.roofVisible = false;
+    this.xrayVisible = false;
+    this.componentFocus = 'all';
     this.design = null;
 
     const ground = new THREE.Mesh(
@@ -157,6 +165,7 @@ export class EngineeringScene {
     this.design = design;
     this.createSite(design);
     this.createStructure(design);
+    this.createXray(design);
     this.createRoad(design);
     this.setView('perspective');
   }
@@ -212,6 +221,7 @@ export class EngineeringScene {
     const wallHeight = input.floorHeight - 0.38;
     const extThickness = input.externalWall / 1000;
     const intThickness = input.internalWall / 1000;
+    const columnSize = input.columnSize / 1000;
 
     for (let floor = 0; floor < input.floors; floor += 1) {
       const baseY = 0.3 + floor * input.floorHeight;
@@ -244,7 +254,7 @@ export class EngineeringScene {
 
       if (input.structuralSystem !== 'load-bearing') {
         design.grid.columns.forEach((column) => {
-          const size = input.structuralSystem === 'steel-frame' ? 0.22 : 0.3;
+          const size = input.structuralSystem === 'steel-frame' ? Math.max(0.18, columnSize * 0.72) : columnSize;
           const material = input.structuralSystem === 'steel-frame' ? steelMaterial : concreteMaterial;
           const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, input.floorHeight, size), material);
           mesh.position.set(column.x, baseY + input.floorHeight / 2, column.z);
@@ -275,15 +285,17 @@ export class EngineeringScene {
 
   createFacadeOpenings(a, b, baseY, floor, input, glassMaterial, frameMaterial) {
     const length = Math.hypot(b.x - a.x, b.z - a.z);
-    const count = Math.max(1, Math.floor(length / 3.4));
+    const facadeFactor = input.facadeSystem === 'glass-band' ? 2.4 : input.facadeSystem === 'deep-shade' ? 4.1 : 3.3;
+    const count = Math.max(1, Math.floor(length / facadeFactor));
     const angle = -Math.atan2(b.z - a.z, b.x - a.x);
     for (let index = 1; index <= count; index += 1) {
       const t = index / (count + 1);
       const center = { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
       const isEntrance = floor === 0 && index === Math.ceil(count / 2) && this.isFrontEdge(a, b, input.roadSide);
-      const width = isEntrance ? 1.15 : 1.45;
-      const height = isEntrance ? 2.15 : 1.25;
+      const width = isEntrance ? 1.15 : clamp(input.windowRatio / 100 * 4.2, 0.85, 2.3);
+      const height = isEntrance ? 2.15 : input.facadeSystem === 'glass-band' ? 1.55 : 1.2;
       const sill = isEntrance ? 0 : 0.9;
+      const shadeDepth = input.facadeSystem === 'deep-shade' || input.climate === 'warm-humid' ? 0.42 : 0.18;
       const frame = new THREE.Mesh(new THREE.BoxGeometry(width + 0.1, height + 0.1, 0.07), frameMaterial);
       const panel = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.075), isEntrance ? frameMaterial : glassMaterial);
       [frame, panel].forEach((mesh) => {
@@ -291,6 +303,12 @@ export class EngineeringScene {
         mesh.rotation.y = angle;
         this.modelRoot.add(mesh);
       });
+      if (!isEntrance) {
+        const shade = new THREE.Mesh(new THREE.BoxGeometry(width + 0.38, 0.08, shadeDepth), frameMaterial);
+        shade.position.set(center.x, baseY + 0.18 + sill + height + 0.16, center.z);
+        shade.rotation.y = angle;
+        this.modelRoot.add(shade);
+      }
     }
   }
 
@@ -356,6 +374,104 @@ export class EngineeringScene {
     this.roofVisible = !this.roofVisible;
     if (this.roofGroup) this.roofGroup.visible = this.roofVisible;
     return this.roofVisible;
+  }
+
+  heatColor(value) {
+    if (value > 0.72) return COLORS.heatHigh;
+    if (value > 0.46) return COLORS.heatMid;
+    return COLORS.heatLow;
+  }
+
+  createXray(design) {
+    this.xrayGroup = new THREE.Group();
+    const input = design.input;
+    const transparentConcrete = new THREE.MeshStandardMaterial({ color: 0xb7c0bb, transparent: true, opacity: 0.12, roughness: 0.5 });
+    for (let floor = 0; floor < input.floors; floor += 1) {
+      const y = 0.45 + floor * input.floorHeight;
+      if (this.componentFocus === 'all' || this.componentFocus === 'slab') {
+        const slabGeometry = new THREE.ExtrudeGeometry(shapeFromPolygon(design.footprint), { depth: 0.08, bevelEnabled: false });
+        slabGeometry.rotateX(Math.PI / 2);
+        const demand = design.structural.components.find((item) => item.type === 'slab').demand;
+        const slab = new THREE.Mesh(slabGeometry, new THREE.MeshBasicMaterial({ color: this.heatColor(demand), transparent: true, opacity: 0.32 }));
+        slab.position.y = y + 0.18;
+        this.xrayGroup.add(slab);
+      }
+      if (this.componentFocus === 'all' || this.componentFocus === 'wall') {
+        design.footprint.forEach((point, index) => {
+          const wallDemand = design.structural.components.find((item) => item.type === 'wall').demand;
+          const wall = boxBetween(point, design.footprint[(index + 1) % design.footprint.length], input.floorHeight - 0.45, 0.04, y, new THREE.MeshBasicMaterial({ color: this.heatColor(wallDemand), transparent: true, opacity: 0.22 }));
+          this.xrayGroup.add(wall);
+        });
+      }
+    }
+    if (this.componentFocus === 'all' || this.componentFocus === 'column') {
+      design.structural.hotspots.forEach((hotspot) => {
+        const material = new THREE.MeshBasicMaterial({ color: this.heatColor(hotspot.demand), transparent: true, opacity: 0.86 });
+        const size = 0.34 + hotspot.demand * 0.48;
+        const column = new THREE.Mesh(new THREE.BoxGeometry(size, design.metrics.height, size), material);
+        column.position.set(hotspot.x, design.metrics.height / 2, hotspot.z);
+        this.xrayGroup.add(column);
+        const halo = new THREE.Mesh(new THREE.SphereGeometry(size * 0.85, 18, 12), material.clone());
+        halo.material.opacity = 0.25;
+        halo.position.set(hotspot.x, 0.35, hotspot.z);
+        this.xrayGroup.add(halo);
+      });
+    }
+    if (this.componentFocus === 'all' || this.componentFocus === 'beam') {
+      const beamDemand = design.structural.components.find((item) => item.type === 'beam').demand;
+      const material = new THREE.MeshBasicMaterial({ color: this.heatColor(beamDemand), transparent: true, opacity: 0.72 });
+      for (let floor = 1; floor <= input.floors; floor += 1) {
+        const y = floor * input.floorHeight + 0.28;
+        design.grid.xs.forEach((x) => {
+          this.xrayGroup.add(boxBetween({ x, z: design.footprintBounds.zMin }, { x, z: design.footprintBounds.zMax }, 0.08, 0.16, y, material));
+        });
+        design.grid.zs.forEach((z) => {
+          this.xrayGroup.add(boxBetween({ x: design.footprintBounds.xMin, z }, { x: design.footprintBounds.xMax, z }, 0.08, 0.16, y, material));
+        });
+      }
+    }
+    if (this.componentFocus === 'all' || this.componentFocus === 'stair') {
+      design.roomsByFloor.forEach((rooms, floor) => {
+        const stair = rooms.find((room) => room.type === 'stair');
+        if (!stair) return;
+        const demand = design.structural.components.find((item) => item.type === 'stair').demand;
+        const core = new THREE.Mesh(
+          new THREE.BoxGeometry(stair.w, input.floorHeight, stair.d),
+          new THREE.MeshBasicMaterial({ color: this.heatColor(demand), transparent: true, opacity: 0.46 }),
+        );
+        core.position.set(stair.center.x, 0.3 + floor * input.floorHeight + input.floorHeight / 2, stair.center.z);
+        this.xrayGroup.add(core);
+      });
+    }
+    const ghost = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(shapeFromPolygon(design.footprint), { depth: design.metrics.height, bevelEnabled: false }),
+      transparentConcrete,
+    );
+    ghost.geometry.rotateX(Math.PI / 2);
+    ghost.position.y = 0.18;
+    this.xrayGroup.add(ghost);
+    this.xrayGroup.visible = this.xrayVisible;
+    this.modelRoot.add(this.xrayGroup);
+  }
+
+  setXray(visible, component = 'all') {
+    this.xrayVisible = visible;
+    this.componentFocus = component;
+    if (this.design) {
+      if (this.xrayGroup) this.modelRoot.remove(this.xrayGroup);
+      this.createXray(this.design);
+      this.modelRoot.traverse((object) => {
+        if (!object.material || object.parent === this.xrayGroup) return;
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach((material) => {
+          if ('opacity' in material) {
+            material.transparent = visible ? true : material.transparent;
+            if (!object.userData.baseOpacity) object.userData.baseOpacity = material.opacity ?? 1;
+            material.opacity = visible ? Math.min(object.userData.baseOpacity, 0.22) : object.userData.baseOpacity;
+          }
+        });
+      });
+    }
   }
 
   setView(view) {

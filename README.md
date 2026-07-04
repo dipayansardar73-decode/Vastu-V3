@@ -1,4 +1,4 @@
-# VASTU Engineering Studio V3
+# VASTU Engineering Studio V4
 
 VASTU is a constraint-aware concept-design environment for civil-engineering workflows. It converts a structured engineering brief into one coordinated spatial model, an interactive 3D proposal, a dimensioned 2D concept plan, preliminary geometric quantities, and an explainable decision register.
 
@@ -12,6 +12,8 @@ VASTU is a constraint-aware concept-design environment for civil-engineering wor
 - Preliminary planning grid and vertical column continuity
 - Interactive perspective, top, and front views
 - One-click level-by-level 2D plan and PNG export
+- Professional-grade intake for survey, geotech, fire access, drainage, façade, materials, and local market-rate assumptions
+- Conceptual X-ray mode for load-path, column/beam/slab/stair/wall heat visualization
 - Design rationale, room schedule, assumptions, and mandatory professional checks
 
 This release is for academic and professional **concept coordination**. It does not replace local authority approval, architectural services, structural analysis, geotechnical design, fire and life-safety design, MEP engineering, or construction drawings.

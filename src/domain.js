@@ -15,6 +15,8 @@ const ROOM_LIBRARY = {
 
 const round = (value, places = 2) => Number(value.toFixed(places));
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const soilFactors = { soft: 1.35, medium: 1, rocky: 0.78, expansive: 1.45 };
+const seismicFactors = { II: 0.1, III: 0.16, IV: 0.24, V: 0.36 };
 
 export function polygonArea(points) {
   let area = 0;
@@ -278,6 +280,10 @@ function createChecks(input, requestedInput, metrics, rooms, grid, adjustments) 
     { label: 'Primary grid span', value: `${round(Math.max(grid.maxSpanX, grid.maxSpanZ))} m`, status: Math.max(grid.maxSpanX, grid.maxSpanZ) <= input.gridSpan * 1.1 ? 'pass' : 'warn', note: 'Geometric coordination check only; no member analysis performed.' },
     { label: 'Usable room width', value: `${round(minimumRoomDimension)} m minimum`, status: minimumRoomDimension >= 2.4 ? 'pass' : 'warn', note: 'Confirm room-specific minimums under the applicable local rules.' },
     { label: 'Authority inputs', value: input.authorityVerified ? 'Recorded as verified' : 'Unverified defaults', status: input.authorityVerified ? 'pass' : 'warn', note: 'Setbacks, FAR, coverage and height must come from the approving authority.' },
+    { label: 'Fire access', value: `${input.fireAccessWidth} m recorded`, status: input.fireAccessWidth >= 6 ? 'pass' : 'warn', note: 'Approach road and appliance access require local fire authority confirmation.' },
+    { label: 'Exit stair width', value: `${input.stairWidth} m`, status: input.stairWidth >= 1.2 ? 'pass' : 'warn', note: 'Occupancy, travel distance and fire strategy may require wider or additional stairs.' },
+    { label: 'Drainage slope', value: `${input.siteSlope}% site slope`, status: input.siteSlope <= 8 ? 'pass' : 'warn', note: 'Higher slopes require contour-led grading, retaining walls and erosion control.' },
+    { label: 'Ground water', value: `${input.waterTable} m below GL`, status: input.waterTable >= 2.5 ? 'pass' : 'warn', note: 'Shallow water table affects excavation, waterproofing and foundation selection.' },
     { label: 'Structural safety', value: 'Analysis required', status: 'mandatory', note: `Design loads, ${input.seismicZone === 'V' ? 'high seismic demand, ' : ''}member sizing, ductile detailing and foundation design are outside concept generation.` },
     { label: 'Geotechnical basis', value: `${input.sbc} kN/m² assumed`, status: 'mandatory', note: 'Replace the assumed SBC with a site investigation and foundation recommendation.' },
   ];
@@ -292,6 +298,79 @@ function createChecks(input, requestedInput, metrics, rooms, grid, adjustments) 
   return checks;
 }
 
+function createStructuralAnalysis(input, footprint, grid, roomsByFloor) {
+  const floorArea = polygonArea(footprint);
+  const slabDead = (input.slabThickness / 1000) * 25;
+  const finishLoad = 1.0;
+  const wallLoad = (input.externalWall / 1000) * 20 * Math.min(input.floorHeight, 3.4) * 0.22;
+  const serviceLoad = input.occupants > 12 ? 0.45 : 0.25;
+  const gravityLoad = slabDead + finishLoad + input.liveLoad + wallLoad + serviceLoad;
+  const totalGravity = floorArea * input.floors * gravityLoad;
+  const seismicBaseShear = totalGravity * (seismicFactors[input.seismicZone] || 0.16) * soilFactors[input.soilClass || 'medium'];
+  const columnTributary = totalGravity / Math.max(grid.columns.length, 1);
+  const span = Math.max(grid.maxSpanX, grid.maxSpanZ);
+  const momentDemand = (gravityLoad * span * span) / 8;
+  const foundationPressure = columnTributary / Math.max((input.columnSize / 1000 + 1.1) ** 2, 1);
+  const utilization = clamp(foundationPressure / Math.max(input.sbc, 1), 0, 2.4);
+  const hotspots = grid.columns.map((column) => {
+    const edgeFactor = (Math.abs(column.x - grid.xs[0]) < 0.05 || Math.abs(column.x - grid.xs.at(-1)) < 0.05 || Math.abs(column.z - grid.zs[0]) < 0.05 || Math.abs(column.z - grid.zs.at(-1)) < 0.05) ? 0.82 : 1.16;
+    const stairRoom = roomsByFloor.flat().find((room) => room.type === 'stair');
+    const coreFactor = stairRoom && Math.hypot(column.x - stairRoom.center.x, column.z - stairRoom.center.z) < span * 0.85 ? 1.18 : 1;
+    const demand = clamp((utilization * edgeFactor * coreFactor) / 1.35, 0.15, 1);
+    return { ...column, demand: round(demand, 2), axialLoad: round(columnTributary * edgeFactor * coreFactor, 1) };
+  });
+  const components = [
+    { type: 'slab', label: 'Slab system', demand: round(clamp(span / 5.2 + input.liveLoad / 8, 0.2, 1), 2), note: `${input.slabThickness} mm ${input.concreteGrade} slab, conceptual two-way panel action.` },
+    { type: 'beam', label: 'Beam grid', demand: round(clamp(momentDemand / 55, 0.2, 1), 2), note: `${input.beamDepth} mm nominal beam depth; bending moment proxy ${round(momentDemand, 1)} kNm/m.` },
+    { type: 'column', label: 'Column line', demand: round(clamp(utilization, 0.2, 1), 2), note: `${input.columnSize} mm columns; peak conceptual axial load ${round(Math.max(...hotspots.map((h) => h.axialLoad)), 0)} kN.` },
+    { type: 'stair', label: 'Stair core', demand: round(input.stairWidth < 1.2 ? 0.78 : 0.48, 2), note: `${input.stairWidth} m clear stair basis; check waist slab, landing beam and fire egress.` },
+    { type: 'wall', label: 'Wall/envelope', demand: round(clamp(input.windowRatio / 70 + input.externalWall / 900, 0.2, 1), 2), note: `${input.externalWall} mm external wall, ${input.windowRatio}% window-wall ratio.` },
+  ];
+  return {
+    gravityLoad: round(gravityLoad, 2),
+    totalGravity: round(totalGravity, 0),
+    seismicBaseShear: round(seismicBaseShear, 0),
+    foundationPressure: round(foundationPressure, 1),
+    utilization: round(utilization, 2),
+    hotspots,
+    components,
+    disclaimer: 'X-ray is a conceptual load-path visualization, not FEM/ETABS/STAAD certified analysis.',
+  };
+}
+
+function createCostModel(input, quantities, metrics) {
+  const cementBags = quantities.concrete * 6.4;
+  const concreteCost = cementBags * input.cementRate * 2.85;
+  const steelCost = quantities.reinforcement * input.steelRate;
+  const masonryCost = quantities.masonry * input.masonryRate;
+  const envelopeCost = metrics.builtUpArea * (input.windowRatio / 100) * 2800;
+  const servicesCost = metrics.builtUpArea * (input.occupants > 10 ? 2400 : 1900);
+  const subtotal = (concreteCost + steelCost + masonryCost + envelopeCost + servicesCost) * input.locationCostIndex;
+  return {
+    concreteCost: round(concreteCost, 0),
+    steelCost: round(steelCost, 0),
+    masonryCost: round(masonryCost, 0),
+    envelopeCost: round(envelopeCost, 0),
+    servicesCost: round(servicesCost, 0),
+    total: round(subtotal, 0),
+    costPerSqm: round(subtotal / Math.max(metrics.builtUpArea, 1), 0),
+    note: 'Rates are editable project inputs. Connect a supplier/material API later for true live procurement pricing.',
+  };
+}
+
+function createSpecificationRegister(input) {
+  const foundation = input.soilClass === 'soft' || input.soilClass === 'expansive' ? 'raft / pile study required' : input.sbc < 120 ? 'combined footing study' : 'isolated footing concept';
+  return [
+    { category: 'Survey', item: 'Total station coordinates, contour map, utility trace, adjoining structure record', status: input.contourInterval <= 0.5 ? 'detailed' : 'needs denser levels' },
+    { category: 'Geotech', item: `${input.soilClass} soil, ${input.sbc} kN/m2 SBC, ${input.waterTable} m water table`, status: foundation },
+    { category: 'Structure', item: `${input.structuralSystem}, ${input.concreteGrade} concrete, ${input.steelGrade} reinforcement`, status: 'concept basis only' },
+    { category: 'Envelope', item: `${input.facadeSystem}, ${input.windowRatio}% WWR, ${input.externalWall} mm external wall`, status: 'energy/daylight review' },
+    { category: 'Fire/life safety', item: `${input.fireAccessWidth} m access, ${input.stairWidth} m stair, occupancy ${input.occupants}`, status: 'authority verification' },
+    { category: 'Water', item: `${input.rainIntensity} mm/hr rainfall basis, ${input.softscape}% softscape`, status: 'stormwater sizing required' },
+    { category: 'Market', item: `Location index ${input.locationCostIndex}, cement ${input.cementRate}/bag, steel ${input.steelRate}/kg`, status: 'editable market watch' },
+  ];
+}
+
 function createDecisions(input, requestedInput, footprint, roomsByFloor, grid, adjustments) {
   const shapeText = input.plotShape === 'rectangle' ? 'orthogonal' : input.plotShape === 'l-shape' ? 'two-wing L-shaped' : 'chamfer-responsive';
   const serviceRooms = roomsByFloor.flat().filter((room) => ['kitchen', 'toilet', 'utility'].includes(room.type)).length;
@@ -301,6 +380,8 @@ function createDecisions(input, requestedInput, footprint, roomsByFloor, grid, a
     { title: 'Structural regularity', category: 'STRUCTURE', text: `${grid.columns.length} conceptual column positions follow a near-${input.gridSpan} m planning grid. Vertical continuity is retained across ${input.floors} storey${input.floors > 1 ? 's' : ''}.` },
     { title: 'Wet-service coordination', category: 'SERVICES', text: `${serviceRooms} wet or service spaces are identified as a coordination group so future plumbing stacks can be consolidated during detailed design.` },
     { title: 'Climate strategy', category: 'ENVIRONMENT', text: `${input.climate.replace('-', ' ')} assumptions drive shaded openings, cross-ventilation intent and the selected ${input.style.replaceAll('-', ' ')} massing language.` },
+    { title: 'Geotechnical and drainage basis', category: 'SITE', text: `${input.soilClass} soil, ${input.sbc} kN/m² assumed SBC, ${input.waterTable} m water table and ${input.siteSlope}% slope are used to flag foundation and grading risk.` },
+    { title: 'Market intelligence placeholder', category: 'COST', text: `Material rates and the ${input.locationCostIndex} location index drive a live-editable cost model. True supplier availability requires a procurement data connection.` },
     { title: 'Future-proofing', category: 'LIFECYCLE', text: input.futureExpansion ? 'The regular primary grid and stacked stair core preserve a rational path for later adaptation, subject to structural design.' : 'The proposal is optimized for the current programme without reserving an expansion zone.' },
   ];
   if (adjustments.length) {
@@ -373,6 +454,8 @@ export function generateDesign(input) {
     requestedHeight: round(requestedInput.floorHeight * requestedInput.floors + 1.05, 2),
   };
   const checks = createChecks(resolvedInput, requestedInput, metrics, rooms, grid, adjustments);
+  const quantities = createQuantities(resolvedInput, footprint, grid, roomsByFloor);
+  const structural = createStructuralAnalysis(resolvedInput, footprint, grid, roomsByFloor);
 
   return {
     input: resolvedInput,
@@ -387,7 +470,10 @@ export function generateDesign(input) {
     metrics,
     checks,
     decisions: createDecisions(resolvedInput, requestedInput, footprint, roomsByFloor, grid, adjustments),
-    quantities: createQuantities(resolvedInput, footprint, grid, roomsByFloor),
+    quantities,
+    structural,
+    cost: createCostModel(resolvedInput, quantities, metrics),
+    specifications: createSpecificationRegister(resolvedInput),
     generatedAt: new Date(),
   };
 }

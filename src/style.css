@@ -146,10 +146,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .view-toolbar button:hover, .view-toolbar button.active { color: #f4f1e9; background: rgba(255,255,255,.07); }
 .view-toolbar button.active { box-shadow: inset 0 -2px var(--brass); }
 .view-toolbar > span { width: 8px; border-right: 1px solid var(--line-dark); }
-.viewport-shell[data-mode='plan'] .view-toolbar [data-view], .viewport-shell[data-mode='plan'] #toggle-roof, .viewport-shell[data-mode='plan'] .view-toolbar > span { display: none; }
+.viewport-shell[data-mode='plan'] .view-toolbar [data-view], .viewport-shell[data-mode='plan'] #toggle-roof, .viewport-shell[data-mode='plan'] #toggle-xray, .viewport-shell[data-mode='plan'] .xray-control, .viewport-shell[data-mode='plan'] .view-toolbar > span { display: none; }
+.viewport-shell[data-mode='xray'] #toggle-xray { color: #ffe4bc; background: rgba(216,75,55,.22); box-shadow: inset 0 -2px #d84b37; }
 .plan-level-control { display: none; align-items: center; gap: 8px; padding: 0 10px; color: #819089; border-right: 1px solid var(--line-dark); font: 600 8px var(--mono); letter-spacing: .06em; }
 .plan-level-control select { height: 24px; padding: 0 22px 0 8px; color: #f2efe7; background: #14211d; border: 1px solid #3a4943; font: 600 8px var(--mono); }
 .viewport-shell[data-mode='plan'] .plan-level-control { display: flex; }
+.xray-control { display: none; }
+.viewport-shell[data-mode='xray'] .xray-control { display: flex; }
 
 .constraint-banner { position: absolute; z-index: 9; top: 64px; left: 18px; display: grid; grid-template-columns: auto minmax(180px, 1fr) auto; align-items: center; gap: 12px; max-width: min(760px, calc(100% - 36px)); min-height: 40px; padding: 9px 11px; color: #d9d8cf; background: rgba(66, 44, 25, .94); border: 1px solid rgba(189, 138, 69, .48); backdrop-filter: blur(12px); }
 .constraint-banner[hidden] { display: none; }
@@ -172,7 +175,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .analysis-header h2 { margin: 0; font-size: 18px; letter-spacing: -.035em; }
 .analysis-header button { width: 28px; height: 28px; color: #83908a; background: transparent; border: 1px solid var(--line-dark); font: 300 20px/1 var(--sans); }
 .analysis-header button:hover { color: white; border-color: #65736d; }
-.analysis-tabs { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line-dark); }
+.analysis-tabs { display: grid; grid-template-columns: repeat(6, 1fr); border-bottom: 1px solid var(--line-dark); }
 .analysis-tabs button { height: 39px; color: #697a73; background: transparent; border-right: 1px solid var(--line-dark); font: 600 8px var(--mono); letter-spacing: .08em; }
 .analysis-tabs button.active { color: #f1efe7; background: rgba(255,255,255,.035); box-shadow: inset 0 -2px var(--brass); }
 .analysis-content { height: calc(100% - 133px); overflow: auto; scrollbar-width: thin; scrollbar-color: #405049 transparent; }
@@ -190,6 +193,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .quantity-card strong { color: #e7ded0; font: 600 13px var(--mono); }
 .quantity-card small { margin-top: 4px; color: #6f8179; font: 500 7px var(--mono); }
 .quantity-card p { margin: 4px 0 0; color: #73837c; font-size: 8px; line-height: 1.5; }
+.xray-card { border-color: rgba(216,75,55,.42); background: linear-gradient(135deg, rgba(47,86,72,.9), rgba(50,22,18,.92)); }
+.demand-chip { min-width: 48px; padding: 4px 5px; color: #101815; background: linear-gradient(90deg, #3abf8f, #e2a33f, #d84b37); font: 700 7px var(--mono); text-align: center; }
+.component-card > strong { color: #f0d2bf; }
 
 .check-card { padding: 16px 0; border-bottom: 1px solid var(--line-dark); }
 .check-card > div { display: flex; align-items: center; gap: 9px; }
