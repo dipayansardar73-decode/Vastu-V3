@@ -34,6 +34,22 @@ export function polygonPerimeter(points) {
   }, 0);
 }
 
+function distanceToSegment(p, a, b) {
+  const l2 = (b.x - a.x) ** 2 + (b.z - a.z) ** 2;
+  if (l2 === 0) return Math.hypot(p.x - a.x, p.z - a.z);
+  let t = ((p.x - a.x) * (b.x - a.x) + (p.z - a.z) * (b.z - a.z)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (a.x + t * (b.x - a.x)), p.z - (a.z + t * (b.z - a.z)));
+}
+
+export function distanceToPolygon(point, polygon) {
+  let min = Infinity;
+  for (let i = 0; i < polygon.length; i++) {
+    min = Math.min(min, distanceToSegment(point, polygon[i], polygon[(i + 1) % polygon.length]));
+  }
+  return min;
+}
+
 export function pointInPolygon(point, polygon) {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -53,6 +69,21 @@ function boundsOf(points) {
 }
 
 function createPlotPolygon(input) {
+  if (input.plotPolygon && input.plotPolygon.length > 5) {
+    try {
+      const parsed = JSON.parse(input.plotPolygon);
+      if (parsed && parsed.length >= 3) {
+         const xs = parsed.map(p => p.x);
+         const zs = parsed.map(p => p.z);
+         const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+         const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+         return parsed.map(p => ({ x: p.x - cx, z: p.z - cz }));
+      }
+    } catch (e) {
+      console.error('Invalid plot polygon', e);
+    }
+  }
+
   const x0 = -input.plotWidth / 2;
   const x1 = input.plotWidth / 2;
   const z0 = -input.plotDepth / 2;
@@ -78,11 +109,12 @@ function createPlotPolygon(input) {
   return [{ x: x0, z: z0 }, { x: x1, z: z0 }, { x: x1, z: z1 }, { x: x0, z: z1 }];
 }
 
-function buildableBounds(input) {
-  let xMin = -input.plotWidth / 2;
-  let xMax = input.plotWidth / 2;
-  let zMin = -input.plotDepth / 2;
-  let zMax = input.plotDepth / 2;
+function buildableBounds(input, plotPolygon) {
+  const plotBounds = boundsOf(plotPolygon);
+  let xMin = plotBounds.xMin;
+  let xMax = plotBounds.xMax;
+  let zMin = plotBounds.zMin;
+  let zMax = plotBounds.zMax;
 
   if (input.roadSide === 'south') {
     zMin += input.frontSetback; zMax -= input.rearSetback;
@@ -101,13 +133,18 @@ function buildableBounds(input) {
   return { xMin, xMax, zMin, zMax };
 }
 
-function footprintFromEnvelope(input, bounds, plotArea) {
+function footprintFromEnvelope(input, bounds, plotArea, plotPolygon) {
   const { xMin, xMax, zMin, zMax } = bounds;
   const width = xMax - xMin;
   const depth = zMax - zMin;
   let polygon;
 
-  if (input.plotShape === 'l-shape') {
+  if (input.plotPolygon && input.plotPolygon.length > 5) {
+    // For custom drawn polygons, trying to scale towards the centroid or AABB clipping
+    // causes severe self-intersections on concave shapes (e.g. C-shapes). 
+    // We will use the exact drawn polygon as the footprint. Users can draw setbacks manually.
+    polygon = plotPolygon;
+  } else if (input.plotShape === 'l-shape') {
     const cutX = xMin + width * 0.67;
     const cutZ = zMin + depth * 0.62;
     polygon = [
@@ -194,10 +231,47 @@ function distributeProgramme(input) {
   return floors;
 }
 
-function splitRectangle(rect, rooms, output = []) {
+function clipPolygon(p, axis, value, keepLess) {
+  const result = [];
+  for (let i = 0; i < p.length; i++) {
+    const cur = p[i];
+    const prev = p[(i - 1 + p.length) % p.length];
+    const curInside = keepLess ? cur[axis] <= value : cur[axis] >= value;
+    const prevInside = keepLess ? prev[axis] <= value : prev[axis] >= value;
+    
+    if (curInside !== prevInside) {
+      const otherAxis = axis === 'x' ? 'z' : 'x';
+      const t = (value - prev[axis]) / (cur[axis] - prev[axis]);
+      result.push({ [axis]: value, [otherAxis]: prev[otherAxis] + t * (cur[otherAxis] - prev[otherAxis]) });
+    }
+    if (curInside) {
+      result.push(cur);
+    }
+  }
+  return result;
+}
+
+function cleanPolygon(p) {
+  if (p.length < 3) return p;
+  for (let i = 0; i < p.length; i++) {
+    for (let j = i + 1; j < p.length; j++) {
+      if (Math.hypot(p[i].x - p[j].x, p[i].z - p[j].z) < 0.01) {
+        const poly1 = p.slice(i, j);
+        const poly2 = [...p.slice(0, i), ...p.slice(j)];
+        const clean1 = cleanPolygon(poly1);
+        const clean2 = cleanPolygon(poly2);
+        return polygonArea(clean1) > polygonArea(clean2) ? clean1 : clean2;
+      }
+    }
+  }
+  return p;
+}
+
+function splitPolygon(poly, rooms, output = []) {
   if (rooms.length === 0) return output;
+  const bounds = boundsOf(poly);
   if (rooms.length === 1) {
-    output.push({ ...rooms[0], ...rect });
+    output.push({ ...rooms[0], polygon: poly, x: bounds.xMin, z: bounds.zMin, w: bounds.xMax - bounds.xMin, d: bounds.zMax - bounds.zMin });
     return output;
   }
 
@@ -213,41 +287,64 @@ function splitRectangle(rect, rooms, output = []) {
 
   const first = rooms.slice(0, splitIndex);
   const second = rooms.slice(splitIndex);
-  const firstWeight = first.reduce((sum, room) => sum + room.weight, 0);
-  const ratio = clamp(firstWeight / total, 0.25, 0.75);
+  const ratio = clamp(first.reduce((sum, room) => sum + room.weight, 0) / total, 0.1, 0.9);
 
-  if (rect.w >= rect.d) {
-    const firstWidth = rect.w * ratio;
-    splitRectangle({ ...rect, w: firstWidth }, first, output);
-    splitRectangle({ ...rect, x: rect.x + firstWidth, w: rect.w - firstWidth }, second, output);
-  } else {
-    const firstDepth = rect.d * ratio;
-    splitRectangle({ ...rect, d: firstDepth }, first, output);
-    splitRectangle({ ...rect, z: rect.z + firstDepth, d: rect.d - firstDepth }, second, output);
+  const axis = (bounds.xMax - bounds.xMin) > (bounds.zMax - bounds.zMin) ? 'x' : 'z';
+  const targetArea = polygonArea(poly) * ratio;
+  
+  let min = bounds[axis + 'Min'];
+  let max = bounds[axis + 'Max'];
+  let splitVal = (min + max) / 2;
+  
+  for (let iter = 0; iter < 15; iter++) {
+    splitVal = (min + max) / 2;
+    const left = clipPolygon(poly, axis, splitVal, true);
+    if (Math.abs(polygonArea(left) - targetArea) < 0.1) break;
+    if (polygonArea(left) > targetArea) max = splitVal;
+    else min = splitVal;
   }
+  
+  const polyFirst = cleanPolygon(clipPolygon(poly, axis, splitVal, true));
+  const polySecond = cleanPolygon(clipPolygon(poly, axis, splitVal, false));
+  
+  if (polyFirst.length >= 3) splitPolygon(polyFirst, first, output);
+  else splitPolygon(poly, first, output); // fallback if clip fails
+  
+  if (polySecond.length >= 3) splitPolygon(polySecond, second, output);
+  else splitPolygon(poly, second, output);
+
   return output;
 }
 
-function layoutRooms(programme, zones, floor) {
+function layoutRooms(programme, zones, floor, footprint) {
   const totalZoneArea = zones.reduce((sum, zone) => sum + zone.w * zone.d, 0);
   const remaining = [...programme];
   const rooms = [];
-  zones.forEach((zone, zoneIndex) => {
-    const last = zoneIndex === zones.length - 1;
-    const targetCount = last
-      ? remaining.length
-      : Math.max(1, Math.round(programme.length * ((zone.w * zone.d) / totalZoneArea)));
-    const allocated = remaining.splice(0, Math.min(targetCount, remaining.length));
-    splitRectangle(zone, allocated, rooms);
-  });
+  
+  // Use the actual polygon footprint instead of the rectangular zones
+  const targetCount = remaining.length;
+  splitPolygon(footprint, remaining, rooms);
 
-  return rooms.map((room, index) => ({
-    ...room,
-    id: `F${floor + 1}-R${String(index + 1).padStart(2, '0')}`,
-    floor,
-    area: room.w * room.d,
-    center: { x: room.x + room.w / 2, z: room.z + room.d / 2 },
-  }));
+  return rooms.map((room, index) => {
+    const area = polygonArea(room.polygon);
+    let cx = 0, cz = 0;
+    room.polygon.forEach(p => { cx += p.x; cz += p.z; });
+    
+    // Maintain x, z, w, d for compatibility with legacy systems like stairs
+    const bounds = boundsOf(room.polygon);
+    
+    return {
+      ...room,
+      id: `F${floor + 1}-R${String(index + 1).padStart(2, '0')}`,
+      floor,
+      area,
+      center: { x: cx / room.polygon.length, z: cz / room.polygon.length },
+      x: bounds.xMin,
+      z: bounds.zMin,
+      w: bounds.xMax - bounds.xMin,
+      d: bounds.zMax - bounds.zMin
+    };
+  });
 }
 
 function axisPositions(min, max, targetSpan) {
@@ -278,13 +375,13 @@ function edgeKey(a, b) {
   ].sort().join('|');
 }
 
-function sameLine(a, b, c, d) {
+export function sameLine(a, b, c, d) {
   const cross1 = Math.abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x));
   const cross2 = Math.abs((b.x - a.x) * (d.z - a.z) - (b.z - a.z) * (d.x - a.x));
   return cross1 < 0.01 && cross2 < 0.01;
 }
 
-function segmentOverlaps(a, b, c, d) {
+export function segmentOverlaps(a, b, c, d) {
   if (!sameLine(a, b, c, d)) return false;
   const useX = Math.abs(b.x - a.x) >= Math.abs(b.z - a.z);
   const a0 = useX ? a.x : a.z;
@@ -298,37 +395,53 @@ function segmentOverlaps(a, b, c, d) {
   return Math.min(maxA, maxC) - Math.max(minA, minC) > 0.25;
 }
 
-function isExteriorRoomEdge(a, b, footprint) {
-  return footprint.some((point, index) => segmentOverlaps(a, b, point, footprint[(index + 1) % footprint.length]));
+export function isExteriorRoomEdge(a, b, footprint) {
+  const midpoint = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
+  return distanceToPolygon(midpoint, footprint) < 0.1;
 }
 
-function roomEdges(room) {
-  const x0 = room.x;
-  const x1 = room.x + room.w;
-  const z0 = room.z;
-  const z1 = room.z + room.d;
-  return [
-    { a: { x: x0, z: z0 }, b: { x: x1, z: z0 }, side: 'south' },
-    { a: { x: x1, z: z0 }, b: { x: x1, z: z1 }, side: 'east' },
-    { a: { x: x1, z: z1 }, b: { x: x0, z: z1 }, side: 'north' },
-    { a: { x: x0, z: z1 }, b: { x: x0, z: z0 }, side: 'west' },
-  ];
+export function roomEdges(room, footprint) {
+  const edges = [];
+  if (!room.polygon) return edges;
+  for (let i = 0; i < room.polygon.length; i++) {
+    const a = room.polygon[i];
+    const b = room.polygon[(i + 1) % room.polygon.length];
+    
+    if (footprint) {
+      const midpoint = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
+      // Ignore edges that bridge across empty space outside the building (concave BSP artifacts)
+      if (!pointInPolygon(midpoint, footprint) && distanceToPolygon(midpoint, footprint) > 0.1) {
+        continue;
+      }
+    }
+    const nx = b.z - a.z;
+    const nz = -(b.x - a.x);
+    let side = 'south';
+    if (Math.abs(nx) > Math.abs(nz)) {
+       side = nx > 0 ? 'east' : 'west';
+    } else {
+       side = nz > 0 ? 'north' : 'south';
+    }
+    edges.push({ a, b, side });
+  }
+  return edges;
 }
 
 function openingNormal(a, b) {
   const length = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-  return { x: -(b.z - a.z) / length, z: (b.x - a.x) / length };
+  // For a clockwise polygon, (dz, -dx) is the outward normal.
+  return { x: (b.z - a.z) / length, z: -(b.x - a.x) / length };
 }
 
-function createOpenings(input, footprint, roomsByFloor) {
+function createOpenings(input, footprint, roomsByFloor, grid) {
   const openings = [];
   const habitable = new Set(['living', 'dining', 'bedroom', 'study', 'lounge']);
   const service = new Set(['toilet', 'utility', 'kitchen']);
 
   roomsByFloor.forEach((rooms, floor) => {
     rooms.forEach((room) => {
-      roomEdges(room).forEach(({ a, b, side }) => {
-        if (!isExteriorRoomEdge(a, b, footprint)) return;
+      roomEdges(room, footprint).forEach(({ a, b, side }) => {
+        const isExt = isExteriorRoomEdge(a, b, footprint);
         const length = Math.hypot(b.x - a.x, b.z - a.z);
         if (length < 1.2) return;
         const tangent = { x: (b.x - a.x) / length, z: (b.z - a.z) / length };
@@ -341,32 +454,64 @@ function createOpenings(input, footprint, roomsByFloor) {
         let sill = 0.9;
         let count = 1;
 
-        if (floor === 0 && frontEdge && ['entry', 'living'].includes(room.type)) {
-          type = 'main-door';
-          width = 1.15;
-          height = 2.15;
-          sill = 0;
-        } else if (floor === 0 && ['kitchen', 'utility'].includes(room.type)) {
-          type = 'service-door';
-          width = 0.9;
-          height = 2.05;
-          sill = 0;
-        } else if (habitable.has(room.type)) {
-          type = 'window';
-          width = clamp((input.windowRatio / 100) * Math.min(length, 5.5), 0.9, 2.1);
-          height = input.facadeSystem === 'glass-band' ? 1.55 : 1.25;
-          count = length > 5.4 ? 2 : 1;
-        } else if (service.has(room.type)) {
-          type = 'ventilator';
-          width = clamp(length * 0.25, 0.55, 0.9);
-          height = 0.55;
-          sill = 1.55;
+        if (!isExt) {
+          if (habitable.has(room.type) && !room.balconyDoorPlaced) {
+            const pushOut = { x: center.x + normal.x * 0.2, z: center.z + normal.z * 0.2 };
+            const adjacentRoom = rooms.find(r => pointInPolygon(pushOut, r.polygon));
+            if (adjacentRoom && adjacentRoom.type === 'balcony') {
+              type = 'balcony-door';
+              width = Math.min(length * 0.7, 1.8);
+              height = 2.15;
+              sill = 0;
+              room.balconyDoorPlaced = true;
+            }
+          }
+        } else {
+          if (room.type === 'balcony' || room.type === 'parking' || room.type === 'stair') return;
+          
+          if (floor === 0 && frontEdge && ['entry', 'living'].includes(room.type)) {
+            type = 'main-door';
+            width = 1.15;
+            height = 2.15;
+            sill = 0;
+          } else if (floor === 0 && ['kitchen', 'utility'].includes(room.type) && !frontEdge) {
+            type = 'service-door';
+            width = 0.9;
+            height = 2.05;
+            sill = 0;
+          } else if (habitable.has(room.type)) {
+            type = 'window';
+            width = Math.min(length * 0.7, 1.5);
+            height = 1.35;
+            sill = 0.75;
+          } else if (room.type === 'kitchen') {
+            type = 'window';
+            width = Math.min(length * 0.7, 1.2);
+            height = 1.2;
+            sill = 0.9;
+          } else if (['toilet', 'utility'].includes(room.type)) {
+            type = 'ventilator';
+            width = Math.min(length * 0.5, 0.6);
+            height = 0.6;
+            sill = 1.5;
+          }
         }
 
         if (!type) return;
         for (let index = 0; index < count; index += 1) {
           const t = count === 1 ? 0.5 : 0.34 + index * 0.32;
-          const point = { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
+          let point = { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
+          if (grid) {
+            const conflict = grid.columns.find(c => Math.hypot(c.x - point.x, c.z - point.z) < 0.9);
+            if (conflict) {
+              point.x += tangent.x * 1.0;
+              point.z += tangent.z * 1.0;
+              if (Math.hypot(point.x - a.x, point.z - a.z) > length - width / 2 - 0.2) {
+                point.x -= tangent.x * 2.0;
+                point.z -= tangent.z * 2.0;
+              }
+            }
+          }
           openings.push({
             id: `${room.id}-O${index + 1}`,
             floor,
@@ -383,6 +528,35 @@ function createOpenings(input, footprint, roomsByFloor) {
           });
         }
       });
+      
+      const internalEdges = roomEdges(room).filter(({ a, b }) => !isExteriorRoomEdge(a, b, footprint));
+      if (internalEdges.length > 0) {
+        internalEdges.sort((e1, e2) => Math.hypot(e2.b.x - e2.a.x, e2.b.z - e2.a.z) - Math.hypot(e1.b.x - e1.a.x, e1.b.z - e1.a.z));
+        const edge = internalEdges[0];
+        const a = edge.a;
+        const b = edge.b;
+        const length = Math.hypot(b.x - a.x, b.z - a.z);
+        if (length >= 1.0) {
+          const center = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
+          const exists = openings.some(o => o.type === 'internal-door' && o.floor === floor && Math.hypot(o.point.x - center.x, o.point.z - center.z) < 0.5);
+          if (!exists) {
+            const tangent = { x: (b.x - a.x) / length, z: (b.z - a.z) / length };
+            const normal = openingNormal(a, b);
+            let point = { x: a.x + (b.x - a.x) * 0.5, z: a.z + (b.z - a.z) * 0.5 };
+            if (grid) {
+              const conflict = grid.columns.find(c => Math.hypot(c.x - point.x, c.z - point.z) < 0.75);
+              if (conflict) {
+                point.x += tangent.x * 0.85;
+                point.z += tangent.z * 0.85;
+              }
+            }
+            openings.push({
+              id: `${room.id}-ID`, floor, roomId: room.id, roomType: room.type, type: 'internal-door',
+              width: 0.9, height: 2.1, sill: 0, side: edge.side, point, tangent, normal,
+            });
+          }
+        }
+      }
     });
   });
   return openings;
@@ -533,12 +707,12 @@ export function generateDesign(input) {
   const requestedInput = { ...input };
   const plotPolygon = createPlotPolygon(input);
   const plotArea = polygonArea(plotPolygon);
-  const envelope = buildableBounds(input);
+  const envelope = buildableBounds(input, plotPolygon);
   if (envelope.xMax - envelope.xMin < 5 || envelope.zMax - envelope.zMin < 5) {
     throw new Error('The recorded setbacks leave less than 5 m of buildable width or depth. Revise the site controls.');
   }
 
-  const footprint = footprintFromEnvelope(input, envelope, plotArea);
+  const footprint = footprintFromEnvelope(input, envelope, plotArea, plotPolygon);
   const floorPlateArea = polygonArea(footprint);
   const maxFloorsByFar = Math.max(1, Math.floor((input.maxFar * plotArea + 0.001) / floorPlateArea));
   const maxFloorsByHeight = Math.max(1, Math.floor((input.maxHeight - 1.05 + 0.001) / input.floorHeight));
@@ -556,7 +730,9 @@ export function generateDesign(input) {
   const resolvedInput = { ...input, floors: effectiveFloors };
   const zones = footprintZones(resolvedInput.plotShape, footprint);
   const programme = distributeProgramme(resolvedInput);
-  const roomsByFloor = programme.map((rooms, floor) => layoutRooms(rooms, zones, floor));
+  const roomsByFloor = distributeProgramme(requestedInput).map((programme, floor) => {
+    return layoutRooms(programme, zones, floor, footprint);
+  });
   const rooms = roomsByFloor.flat();
   const grid = createGrid(resolvedInput, footprint);
   const builtUpArea = floorPlateArea * resolvedInput.floors;
@@ -573,7 +749,7 @@ export function generateDesign(input) {
   const checks = createChecks(resolvedInput, requestedInput, metrics, rooms, grid, adjustments);
   const quantities = createQuantities(resolvedInput, footprint, grid, roomsByFloor);
   const structural = createStructuralAnalysis(resolvedInput, footprint, grid, roomsByFloor);
-  const openings = createOpenings(resolvedInput, footprint, roomsByFloor);
+  const openings = createOpenings(resolvedInput, footprint, roomsByFloor, grid);
 
   return {
     input: resolvedInput,

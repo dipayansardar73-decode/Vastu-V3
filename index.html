@@ -70,14 +70,23 @@
                   <span>Project location <i>JURISDICTION</i></span>
                   <input name="location" value="Kolkata, West Bengal" required />
                 </label>
-                <label class="field">
+                <div class="field full">
                   <span>Plot configuration</span>
-                  <select name="plotShape">
-                    <option value="rectangle">Rectangular</option>
-                    <option value="chamfer">Corner chamfer</option>
-                    <option value="l-shape">L-shaped</option>
-                  </select>
-                </label>
+                  <div class="plot-draw-container">
+                    <div class="plot-draw-header">
+                      <span class="plot-draw-title">INTERACTIVE PLOT EDITOR</span>
+                      <span class="plot-draw-hint">Click on grid to define boundary</span>
+                    </div>
+                    <div class="canvas-wrapper">
+                      <canvas id="plot-draw-canvas" width="400" height="300"></canvas>
+                    </div>
+                    <div class="plot-draw-tools">
+                      <button type="button" id="plot-draw-reset" class="secondary-btn">RESET</button>
+                      <button type="button" id="plot-draw-close" class="secondary-btn">CLOSE POLYGON</button>
+                      <input type="hidden" name="plotPolygon" id="plotPolygon" value="" />
+                    </div>
+                  </div>
+                </div>
                 <label class="field">
                   <span>Road / frontage</span>
                   <select name="roadSide">
@@ -355,7 +364,6 @@
             <button data-view="top">TOP</button>
             <button data-view="front">FRONT</button>
             <span></span>
-            <button id="toggle-roof">ROOF: OFF</button>
             <button id="toggle-xray">XRAY: LOAD</button>
             <label class="plan-level-control xray-control" for="component-focus">COMPONENT <select id="component-focus" aria-label="Component focus">
               <option value="all">ALL SYSTEMS</option>
@@ -367,6 +375,19 @@
             </select></label>
             <label class="plan-level-control" for="plan-level">SHEET <select id="plan-level" aria-label="Plan level"></select></label>
             <button id="download-plan">EXPORT PNG</button>
+          </div>
+
+          <div class="layer-toolbar" id="layer-toolbar">
+            <p>VISIBILITY</p>
+            <label><input type="checkbox" checked data-layer="site"> Site context</label>
+            <label><input type="checkbox" checked data-layer="rooms"> Room areas</label>
+            <label><input type="checkbox" checked data-layer="slabs"> Slabs</label>
+            <label><input type="checkbox" checked data-layer="columns"> Columns</label>
+            <label><input type="checkbox" checked data-layer="walls"> Walls</label>
+            <label><input type="checkbox" checked data-layer="stairs"> Stairs</label>
+            <label><input type="checkbox" checked data-layer="balconies"> Balconies</label>
+            <label><input type="checkbox" checked data-layer="openings"> Openings</label>
+            <label><input type="checkbox" checked data-layer="roof"> Roof elements</label>
           </div>
 
           <div class="constraint-banner" id="constraint-banner" hidden>

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { isExteriorRoomEdge, pointInPolygon, distanceToPolygon } from './domain.js';
 
 const COLORS = {
   background: 0x0b1210,
@@ -19,6 +20,19 @@ const COLORS = {
 };
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+function distanceToSegment(p, a, b) {
+  const l2 = (b.x - a.x) ** 2 + (b.z - a.z) ** 2;
+  if (l2 === 0) return Math.hypot(p.x - a.x, p.z - a.z);
+  let t = ((p.x - a.x) * (b.x - a.x) + (p.z - a.z) * (b.z - a.z)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  const proj = { x: a.x + t * (b.x - a.x), z: a.z + t * (b.z - a.z) };
+  return Math.hypot(p.x - proj.x, p.z - proj.z);
+}
+
+function interpolate(a, b, t) {
+  return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t };
+}
 
 function shapeFromPolygon(points) {
   const shape = new THREE.Shape();
@@ -66,23 +80,21 @@ function createLabel(text, color = '#dfe7df') {
   return sprite;
 }
 
-function uniqueRoomEdges(rooms) {
+function uniqueRoomEdges(rooms, footprint) {
   const edges = new Map();
-  const add = (a, b) => {
+  const add = (a, b, room) => {
     const p1 = `${a.x.toFixed(3)},${a.z.toFixed(3)}`;
     const p2 = `${b.x.toFixed(3)},${b.z.toFixed(3)}`;
     const key = [p1, p2].sort().join('|');
-    edges.set(key, { a, b });
+    if (!edges.has(key)) {
+      edges.set(key, { a, b, room });
+    }
   };
   rooms.forEach((room) => {
-    const x0 = room.x;
-    const x1 = room.x + room.w;
-    const z0 = room.z;
-    const z1 = room.z + room.d;
-    add({ x: x0, z: z0 }, { x: x1, z: z0 });
-    add({ x: x1, z: z0 }, { x: x1, z: z1 });
-    add({ x: x1, z: z1 }, { x: x0, z: z1 });
-    add({ x: x0, z: z1 }, { x: x0, z: z0 });
+    if (!room.polygon) return;
+    for (let i = 0; i < room.polygon.length; i++) {
+      add(room.polygon[i], room.polygon[(i + 1) % room.polygon.length], room);
+    }
   });
   return [...edges.values()];
 }
@@ -119,15 +131,24 @@ export class EngineeringScene {
     sun.shadow.camera.right = 45;
     sun.shadow.camera.top = 45;
     sun.shadow.camera.bottom = -45;
+    sun.shadow.bias = -0.0008;
     this.scene.add(sun);
 
     this.modelRoot = new THREE.Group();
     this.scene.add(this.modelRoot);
-    this.solidGroup = new THREE.Group();
-    this.modelRoot.add(this.solidGroup);
-    this.roofGroup = null;
+    this.groups = {
+      site: new THREE.Group(),
+      slabs: new THREE.Group(),
+      columns: new THREE.Group(),
+      walls: new THREE.Group(),
+      stairs: new THREE.Group(),
+      balconies: new THREE.Group(),
+      openings: new THREE.Group(),
+      rooms: new THREE.Group(),
+      roof: new THREE.Group(),
+    };
+    Object.values(this.groups).forEach((g) => this.modelRoot.add(g));
     this.xrayGroup = null;
-    this.roofVisible = true;
     this.xrayVisible = false;
     this.componentFocus = 'all';
     this.design = null;
@@ -161,8 +182,18 @@ export class EngineeringScene {
     this.scene.remove(this.modelRoot);
     this.modelRoot = new THREE.Group();
     this.scene.add(this.modelRoot);
-    this.solidGroup = new THREE.Group();
-    this.modelRoot.add(this.solidGroup);
+    this.groups = {
+      site: new THREE.Group(),
+      slabs: new THREE.Group(),
+      columns: new THREE.Group(),
+      walls: new THREE.Group(),
+      stairs: new THREE.Group(),
+      balconies: new THREE.Group(),
+      openings: new THREE.Group(),
+      rooms: new THREE.Group(),
+      roof: new THREE.Group(),
+    };
+    Object.values(this.groups).forEach((g) => this.modelRoot.add(g));
   }
 
   renderDesign(design) {
@@ -180,15 +211,15 @@ export class EngineeringScene {
     siteGeometry.rotateX(Math.PI / 2);
     const site = new THREE.Mesh(siteGeometry, new THREE.MeshStandardMaterial({ color: COLORS.site, roughness: 0.94 }));
     site.receiveShadow = true;
-    this.solidGroup.add(site);
-    this.solidGroup.add(lineLoop(design.plotPolygon, COLORS.siteEdge, 0.04));
-    this.solidGroup.add(lineLoop(design.footprint, COLORS.setback, 0.055, true));
+    this.groups.site.add(site);
+    this.groups.site.add(lineLoop(design.plotPolygon, COLORS.siteEdge, 0.04));
+    this.groups.site.add(lineLoop(design.footprint, COLORS.setback, 0.055, true));
 
     const grid = new THREE.GridHelper(90, 90, 0x27312d, 0x19221f);
     grid.position.y = 0.01;
     grid.material.opacity = 0.45;
     grid.material.transparent = true;
-    this.solidGroup.add(grid);
+    this.groups.site.add(grid);
   }
 
   createRoad(design) {
@@ -209,11 +240,11 @@ export class EngineeringScene {
       new THREE.MeshStandardMaterial({ color: COLORS.road, roughness: 1 }),
     );
     road.position.set(x, -0.005, z);
-    this.solidGroup.add(road);
+    this.groups.site.add(road);
     const label = createLabel(`${roadWidth} m road`, '#8a9991');
     label.position.set(x, 0.08, z);
     label.material.rotation = 0;
-    this.solidGroup.add(label);
+    this.groups.site.add(label);
   }
 
   createStructure(design) {
@@ -222,7 +253,7 @@ export class EngineeringScene {
     const internalMaterial = new THREE.MeshStandardMaterial({ color: COLORS.wallInner, roughness: 0.82 });
     const concreteMaterial = new THREE.MeshStandardMaterial({ color: COLORS.concrete, roughness: 0.68 });
     const steelMaterial = new THREE.MeshStandardMaterial({ color: COLORS.steel, roughness: 0.32, metalness: 0.65 });
-    const glassMaterial = new THREE.MeshPhysicalMaterial({ color: COLORS.glazing, transmission: 0.48, transparent: true, opacity: 0.62, roughness: 0.12 });
+    const glassMaterial = new THREE.MeshStandardMaterial({ color: 0x8aa8a0, transparent: true, opacity: 0.35, roughness: 0.15, metalness: 0.85 });
     const doorMaterial = new THREE.MeshStandardMaterial({ color: COLORS.door, roughness: 0.55 });
     const wallHeight = input.floorHeight - 0.38;
     const extThickness = input.externalWall / 1000;
@@ -237,91 +268,170 @@ export class EngineeringScene {
       slab.position.y = baseY;
       slab.castShadow = true;
       slab.receiveShadow = true;
-      this.solidGroup.add(slab);
+      this.groups.slabs.add(slab);
 
       design.roomsByFloor[floor].forEach((room) => {
-        const floorMesh = new THREE.Mesh(
-          new THREE.BoxGeometry(Math.max(room.w - 0.12, 0.1), 0.035, Math.max(room.d - 0.12, 0.1)),
-          new THREE.MeshStandardMaterial({ color: room.color, roughness: 0.88 }),
-        );
+        if (!room.polygon) return;
+        const shape = shapeFromPolygon(room.polygon.map(p => ({
+          x: p.x - room.center.x, 
+          z: p.z - room.center.z
+        })));
+        const geom = new THREE.ExtrudeGeometry(shape, { depth: 0.035, bevelEnabled: false });
+        geom.rotateX(Math.PI / 2);
+        geom.translate(0, -0.0175, 0);
+        const floorMesh = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ color: room.color, roughness: 0.88 }));
         floorMesh.position.set(room.center.x, baseY + 0.18, room.center.z);
         floorMesh.receiveShadow = true;
-        this.solidGroup.add(floorMesh);
+        this.groups.rooms.add(floorMesh);
       });
 
-      uniqueRoomEdges(design.roomsByFloor[floor]).forEach(({ a, b }) => {
-        this.solidGroup.add(boxBetween(a, b, wallHeight, intThickness, baseY + 0.16, internalMaterial));
-      });
-      design.footprint.forEach((point, index) => {
-        const next = design.footprint[(index + 1) % design.footprint.length];
-        this.solidGroup.add(boxBetween(point, next, wallHeight, extThickness, baseY + 0.16, externalMaterial));
+      uniqueRoomEdges(design.roomsByFloor[floor], design.footprint).forEach(({ a, b, room }) => {
+        const isExt = isExteriorRoomEdge(a, b, design.footprint);
+        
+        // Skip edges that are bridging gaps in concave polygons (not internal, not on boundary)
+        const midpoint = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
+        if (!isExt && !pointInPolygon(midpoint, design.footprint)) {
+          return;
+        }
+
+        const length = Math.hypot(b.x - a.x, b.z - a.z);
+        const edgeOpenings = design.openings.filter((o) => o.floor === floor && distanceToSegment(o.point, a, b) < 0.05);
+        edgeOpenings.sort((o1, o2) => Math.hypot(o1.point.x - a.x, o1.point.z - a.z) - Math.hypot(o2.point.x - a.x, o2.point.z - a.z));
+        let currentT = 0;
+        
+        const isBalcony = room.type === 'balcony';
+        const isParking = room.type === 'parking';
+        const thickness = isExt ? extThickness : intThickness;
+        const material = isExt ? externalMaterial : internalMaterial;
+        
+        if (isExt && isParking) {
+           // Parking is completely open at ground level
+           return;
+        }
+
+        if (isExt && isBalcony) {
+           // Draw just a glass railing/parapet for open rooms
+           this.groups.walls.add(boxBetween(a, b, 1.05, thickness, baseY + 0.16, glassMaterial));
+           return;
+        }
+
+        edgeOpenings.forEach((o) => {
+          const dist = Math.hypot(o.point.x - a.x, o.point.z - a.z);
+          const startT = Math.max(currentT, (dist - o.width / 2) / length);
+          const endT = Math.min(1, (dist + o.width / 2) / length);
+          if (startT > currentT) {
+            this.groups.walls.add(boxBetween(interpolate(a, b, currentT), interpolate(a, b, startT), wallHeight, thickness, baseY + 0.16, material));
+          }
+          if (o.sill > 0) {
+            this.groups.walls.add(boxBetween(interpolate(a, b, startT), interpolate(a, b, endT), o.sill, thickness, baseY + 0.16, material));
+          }
+          const lintelHeight = wallHeight - (o.sill + o.height);
+          if (lintelHeight > 0) {
+            this.groups.walls.add(boxBetween(interpolate(a, b, startT), interpolate(a, b, endT), lintelHeight, thickness, baseY + 0.16 + o.sill + o.height, material));
+          }
+          currentT = Math.max(currentT, endT);
+        });
+        if (currentT < 1) {
+          this.groups.walls.add(boxBetween(interpolate(a, b, currentT), b, wallHeight, thickness, baseY + 0.16, material));
+        }
       });
       design.openings.filter((opening) => opening.floor === floor).forEach((opening) => {
         this.createOpening(opening, baseY, input, glassMaterial, doorMaterial, steelMaterial);
       });
 
       if (input.structuralSystem !== 'load-bearing') {
+        const topFloor = floor === input.floors - 1;
+        // Use ground floor stair room for extending columns for the roof mumty
+        const stairForColumns = design.roomsByFloor[0]?.find((room) => room.type === 'stair');
         design.grid.columns.forEach((column) => {
           const size = input.structuralSystem === 'steel-frame' ? Math.max(0.18, columnSize * 0.72) : columnSize;
           const material = input.structuralSystem === 'steel-frame' ? steelMaterial : concreteMaterial;
-          const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, input.floorHeight, size), material);
-          mesh.position.set(column.x, baseY + input.floorHeight / 2, column.z);
+          let colHeight = input.floorHeight;
+          let yPos = baseY + input.floorHeight / 2;
+          
+          if (topFloor && stairForColumns) {
+            if (column.x >= stairForColumns.x - 0.2 && column.x <= stairForColumns.x + stairForColumns.w + 0.2 &&
+                column.z >= stairForColumns.z - 0.2 && column.z <= stairForColumns.z + stairForColumns.d + 0.2) {
+              colHeight += 2.55;
+              yPos += 1.275;
+            }
+          }
+          
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, colHeight, size), material);
+          mesh.position.set(column.x, yPos, column.z);
           mesh.castShadow = true;
-          this.solidGroup.add(mesh);
+          this.groups.columns.add(mesh);
         });
       }
 
-      const stair = design.roomsByFloor[floor].find((room) => room.type === 'stair');
+      // Use ground floor stair location for all floors to ensure perfect vertical stacking
+      const stair = design.roomsByFloor[0]?.find((room) => room.type === 'stair');
       if (stair) this.createStair(stair, baseY, input.floorHeight, concreteMaterial);
-      if (floor > 0) this.createFrontBalcony(design, baseY, glassMaterial, steelMaterial, concreteMaterial);
     }
 
-    this.roofGroup = new THREE.Group();
+    this.groups.roof.clear();
     const roofY = 0.3 + input.floors * input.floorHeight;
     const roofGeometry = new THREE.ExtrudeGeometry(shapeFromPolygon(design.footprint), { depth: 0.16, bevelEnabled: false });
     roofGeometry.rotateX(Math.PI / 2);
     const roof = new THREE.Mesh(roofGeometry, concreteMaterial);
     roof.position.y = roofY;
     roof.castShadow = true;
-    this.roofGroup.add(roof);
+    this.groups.roof.add(roof);
     design.footprint.forEach((point, index) => {
-      this.roofGroup.add(boxBetween(point, design.footprint[(index + 1) % design.footprint.length], 1.05, 0.14, roofY + 0.16, externalMaterial));
+      this.groups.roof.add(boxBetween(point, design.footprint[(index + 1) % design.footprint.length], 1.05, 0.14, roofY + 0.16, externalMaterial));
     });
-    const stairRoom = design.roomsByFloor.at(-1)?.find((room) => room.type === 'stair');
-    if (stairRoom) {
-      const headroom = new THREE.Mesh(
-        new THREE.BoxGeometry(Math.min(stairRoom.w, 2.4), 2.25, Math.min(stairRoom.d, 3.0)),
-        externalMaterial,
-      );
-      headroom.position.set(stairRoom.center.x, roofY + 1.26, stairRoom.center.z);
-      headroom.castShadow = true;
-      this.roofGroup.add(headroom);
-      const headroomDoor = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.95, 0.07), doorMaterial);
-      headroomDoor.position.set(stairRoom.center.x, roofY + 1.05, stairRoom.z - 0.02);
-      this.roofGroup.add(headroomDoor);
+    let mumtyY = roofY;
+    // Base the roof structure on the ground floor stair core so it aligns visually from the outside
+    const stairRoom = design.roomsByFloor[0]?.find((room) => room.type === 'stair');
+    if (stairRoom && stairRoom.polygon) {
+      const height = 2.4;
+      mumtyY = roofY + 0.16 + height;
+      
+      // Mumty Walls
+      for (let i = 0; i < stairRoom.polygon.length; i++) {
+        const p1 = stairRoom.polygon[i];
+        const p2 = stairRoom.polygon[(i + 1) % stairRoom.polygon.length];
+        this.groups.roof.add(boxBetween(p1, p2, height, extThickness, roofY + 0.16, externalMaterial));
+      }
+      
+      // Mumty Roof Slab
+      const shape = shapeFromPolygon(stairRoom.polygon.map(p => ({
+        x: p.x - stairRoom.center.x, 
+        z: p.z - stairRoom.center.z
+      })));
+      const mumtySlabGeom = new THREE.ExtrudeGeometry(shape, { depth: 0.15, bevelEnabled: false });
+      mumtySlabGeom.rotateX(Math.PI / 2);
+      mumtySlabGeom.translate(0, -0.075, 0);
+      const mumtySlab = new THREE.Mesh(mumtySlabGeom, concreteMaterial);
+      // scale slab slightly to create overhang
+      mumtySlab.scale.set(1.1, 1, 1.1);
+      mumtySlab.position.set(stairRoom.center.x, mumtyY + 0.075, stairRoom.center.z);
+      mumtySlab.castShadow = true;
+      this.groups.roof.add(mumtySlab);
     }
     const tank = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.65, 0.65, 0.9, 24),
-      new THREE.MeshStandardMaterial({ color: 0x2a3834, roughness: 0.5 }),
+      new THREE.CylinderGeometry(0.65, 0.65, 1.2, 24),
+      new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 }),
     );
-    tank.position.set(design.footprintBounds.xMax - 1.4, roofY + 0.72, design.footprintBounds.zMax - 1.3);
+    tank.position.set(stairRoom ? stairRoom.center.x : design.footprintBounds.xMax - 1.4, mumtyY + 0.15 + 0.6, stairRoom ? stairRoom.center.z : design.footprintBounds.zMax - 1.3);
     tank.castShadow = true;
-    this.roofGroup.add(tank);
+    this.groups.roof.add(tank);
     const solar = new THREE.Mesh(
       new THREE.BoxGeometry(2.2, 0.08, 1.1),
       new THREE.MeshStandardMaterial({ color: 0x1d2d35, metalness: 0.25, roughness: 0.25 }),
     );
     solar.position.set(design.footprintBounds.xMin + 1.8, roofY + 0.28, design.footprintBounds.zMax - 1.2);
     solar.rotation.x = -0.16;
-    this.roofGroup.add(solar);
-    this.roofGroup.visible = this.roofVisible;
-    this.solidGroup.add(this.roofGroup);
+    this.groups.roof.add(solar);
   }
 
   createOpening(opening, baseY, input, glassMaterial, doorMaterial, frameMaterial) {
     const angle = -Math.atan2(opening.tangent.z, opening.tangent.x);
     const depth = opening.type.includes('door') ? 0.09 : 0.075;
-    const material = opening.type.includes('door') ? doorMaterial : glassMaterial;
+    let material = glassMaterial;
+    if (opening.type === 'main-door' || opening.type === 'internal-door' || opening.type === 'service-door') {
+      material = doorMaterial;
+    }
     const frame = new THREE.Mesh(new THREE.BoxGeometry(opening.width + 0.12, opening.height + 0.12, depth), frameMaterial);
     const panel = new THREE.Mesh(new THREE.BoxGeometry(opening.width, opening.height, depth + 0.01), material);
     const offset = 0.085;
@@ -330,7 +440,7 @@ export class EngineeringScene {
     [frame, panel].forEach((mesh) => {
       mesh.position.set(x, baseY + 0.18 + opening.sill + opening.height / 2, z);
       mesh.rotation.y = angle;
-      this.solidGroup.add(mesh);
+      this.groups.openings.add(mesh);
     });
     const isWindow = opening.type === 'window' || opening.type === 'ventilator';
     if (isWindow) {
@@ -343,11 +453,11 @@ export class EngineeringScene {
       );
       shade.rotation.y = angle;
       shade.castShadow = true;
-      this.solidGroup.add(shade);
+      this.groups.openings.add(shade);
       const sill = new THREE.Mesh(new THREE.BoxGeometry(opening.width + 0.28, 0.06, 0.18), frameMaterial);
       sill.position.set(opening.point.x + opening.normal.x * 0.13, baseY + 0.18 + opening.sill - 0.04, opening.point.z + opening.normal.z * 0.13);
       sill.rotation.y = angle;
-      this.solidGroup.add(sill);
+      this.groups.openings.add(sill);
     }
   }
 
@@ -361,58 +471,47 @@ export class EngineeringScene {
   }
 
   createStair(room, baseY, floorHeight, material) {
-    const steps = 16;
-    const width = Math.min(room.w * 0.42, 1.15);
-    const run = Math.min(room.d * 0.78, 4.2);
-    for (let index = 0; index < steps; index += 1) {
-      const tread = run / steps;
-      const rise = floorHeight / (steps * 2);
-      const step = new THREE.Mesh(new THREE.BoxGeometry(width, rise, tread), material);
-      step.position.set(room.x + width / 2 + 0.18, baseY + 0.2 + rise * (index + 0.5), room.z + 0.3 + tread * (index + 0.5));
+    const halfSteps = Math.ceil((floorHeight / 0.16) / 2);
+    const useX = room.w >= room.d;
+    const roomLength = useX ? room.w : room.d;
+    const roomWidth = useX ? room.d : room.w;
+    
+    const width = Math.min(roomWidth / 2 - 0.05, 1.2);
+    const landingD = Math.max(width, 1.0);
+    const flightD = Math.max(roomLength - landingD - 0.2, 1.0);
+    const tread = flightD / halfSteps;
+    const rise = floorHeight / (halfSteps * 2);
+    
+    for (let i = 0; i < halfSteps; i += 1) {
+      const step = new THREE.Mesh(new THREE.BoxGeometry(useX ? tread : width, rise, useX ? width : tread), material);
+      const px = useX ? room.x + 0.1 + tread * (i + 0.5) : room.x + width / 2 + 0.1;
+      const pz = useX ? room.z + width / 2 + 0.1 : room.z + 0.1 + tread * (i + 0.5);
+      step.position.set(px, baseY + 0.16 + rise * (i + 0.5), pz);
       step.castShadow = true;
-      this.solidGroup.add(step);
+      this.groups.stairs.add(step);
+    }
+    
+    const landing = new THREE.Mesh(new THREE.BoxGeometry(useX ? landingD : width * 2 + 0.1, rise, useX ? width * 2 + 0.1 : landingD), material);
+    const lx = useX ? room.x + 0.1 + flightD + landingD / 2 - tread / 2 : room.x + width + 0.15;
+    const lz = useX ? room.z + width + 0.15 : room.z + 0.1 + flightD + landingD / 2 - tread / 2;
+    landing.position.set(lx, baseY + 0.16 + rise * halfSteps, lz);
+    landing.castShadow = true;
+    this.groups.stairs.add(landing);
+    
+    for (let i = 0; i < halfSteps; i += 1) {
+      const step = new THREE.Mesh(new THREE.BoxGeometry(useX ? tread : width, rise, useX ? width : tread), material);
+      const px = useX ? room.x + 0.1 + flightD - tread * (i + 0.5) : room.x + width * 1.5 + 0.2;
+      const pz = useX ? room.z + width * 1.5 + 0.2 : room.z + 0.1 + flightD - tread * (i + 0.5);
+      step.position.set(px, baseY + 0.16 + floorHeight / 2 + rise * (i + 0.5), pz);
+      step.castShadow = true;
+      this.groups.stairs.add(step);
     }
   }
 
-  createFrontBalcony(design, baseY, glassMaterial, steelMaterial, concreteMaterial) {
-    const bounds = design.footprintBounds;
-    const side = design.input.roadSide;
-    const width = Math.min((bounds.xMax - bounds.xMin) * 0.5, 5.5);
-    const depth = 1.25;
-    let x = (bounds.xMin + bounds.xMax) / 2;
-    let z = (bounds.zMin + bounds.zMax) / 2;
-    let slabW = width;
-    let slabD = depth;
-    if (side === 'south') z = bounds.zMin - depth / 2;
-    if (side === 'north') z = bounds.zMax + depth / 2;
-    if (side === 'east' || side === 'west') {
-      slabW = depth; slabD = width;
-      x = side === 'east' ? bounds.xMax + depth / 2 : bounds.xMin - depth / 2;
+  setLayerVisibility(layer, visible) {
+    if (this.groups[layer]) {
+      this.groups[layer].visible = visible;
     }
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(slabW, 0.14, slabD), concreteMaterial);
-    slab.position.set(x, baseY + 0.14, z);
-    slab.castShadow = true;
-    this.solidGroup.add(slab);
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(slabW, 0.85, side === 'east' || side === 'west' ? slabD : 0.04), glassMaterial);
-    if (side === 'south') rail.position.set(x, baseY + 0.62, z - depth / 2);
-    if (side === 'north') rail.position.set(x, baseY + 0.62, z + depth / 2);
-    if (side === 'east' || side === 'west') {
-      rail.geometry.dispose();
-      rail.geometry = new THREE.BoxGeometry(0.04, 0.85, slabD);
-      rail.position.set(x + (side === 'east' ? depth / 2 : -depth / 2), baseY + 0.62, z);
-    }
-    this.solidGroup.add(rail);
-    const handrail = rail.clone();
-    handrail.material = steelMaterial;
-    handrail.scale.y = 0.055;
-    handrail.position.y = baseY + 1.06;
-    this.solidGroup.add(handrail);
-  }
-
-  toggleRoof() {
-    this.roofVisible = !this.roofVisible;
-    if (this.roofGroup) this.roofGroup.visible = this.roofVisible;
-    return this.roofVisible;
   }
 
   heatColor(value) {
@@ -520,16 +619,18 @@ export class EngineeringScene {
     this.componentFocus = component;
     if (this.design) {
       this.createXray(this.design);
-      this.solidGroup.traverse((object) => {
-        if (!object.material) return;
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => {
-          if ('opacity' in material) {
-            if (material.userData.baseOpacity == null) material.userData.baseOpacity = material.opacity ?? 1;
-            if (material.userData.baseTransparent == null) material.userData.baseTransparent = material.transparent;
-            material.transparent = visible ? true : material.userData.baseTransparent;
-            material.opacity = visible ? Math.min(material.userData.baseOpacity, 0.16) : material.userData.baseOpacity;
-          }
+      Object.values(this.groups).forEach((group) => {
+        group.traverse((object) => {
+          if (!object.material) return;
+          const materials = Array.isArray(object.material) ? object.material : [object.material];
+          materials.forEach((material) => {
+            if ('opacity' in material) {
+              if (material.userData.baseOpacity == null) material.userData.baseOpacity = material.opacity ?? 1;
+              if (material.userData.baseTransparent == null) material.userData.baseTransparent = material.transparent;
+              material.transparent = visible ? true : material.userData.baseTransparent;
+              material.opacity = visible ? Math.min(material.userData.baseOpacity, 0.16) : material.userData.baseOpacity;
+            }
+          });
         });
       });
     }

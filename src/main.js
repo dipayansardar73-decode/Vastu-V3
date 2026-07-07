@@ -16,7 +16,6 @@ const generateButton = document.querySelector('#generate-design');
 const planLevelSelect = document.querySelector('#plan-level');
 const constraintBanner = document.querySelector('#constraint-banner');
 const componentFocus = document.querySelector('#component-focus');
-const roofButton = document.querySelector('#toggle-roof');
 
 let currentStep = 0;
 let currentMode = '3d';
@@ -85,8 +84,132 @@ function readEngineeringInput() {
     steelRate: numberValue(data, 'steelRate'),
     masonryRate: numberValue(data, 'masonryRate'),
     locationCostIndex: numberValue(data, 'locationCostIndex'),
+    plotPolygon: data.get('plotPolygon'),
   };
 }
+
+const plotCanvas = document.getElementById('plot-draw-canvas');
+const plotCtx = plotCanvas.getContext('2d');
+const plotInput = document.getElementById('plotPolygon');
+let drawnPoints = [];
+let drawingClosed = false;
+
+function drawPlotCanvas() {
+  plotCtx.clearRect(0, 0, plotCanvas.width, plotCanvas.height);
+  
+  // Draw grid
+  plotCtx.strokeStyle = 'rgba(255,255,255,0.05)';
+  plotCtx.lineWidth = 1;
+  for(let i=0; i<=300; i+=20) {
+    plotCtx.beginPath(); plotCtx.moveTo(i, 0); plotCtx.lineTo(i, 300); plotCtx.stroke();
+    plotCtx.beginPath(); plotCtx.moveTo(0, i); plotCtx.lineTo(300, i); plotCtx.stroke();
+  }
+
+  if (drawnPoints.length > 0) {
+    plotCtx.beginPath();
+    plotCtx.moveTo(drawnPoints[0].x, drawnPoints[0].y);
+    for (let i = 1; i < drawnPoints.length; i++) {
+      plotCtx.lineTo(drawnPoints[i].x, drawnPoints[i].y);
+    }
+    if (drawingClosed) {
+      plotCtx.closePath();
+      plotCtx.fillStyle = 'rgba(138, 168, 160, 0.2)';
+      plotCtx.fill();
+    }
+    plotCtx.strokeStyle = '#8aa8a0';
+    plotCtx.lineWidth = 2;
+    plotCtx.stroke();
+
+    drawnPoints.forEach(p => {
+      plotCtx.beginPath();
+      plotCtx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+      plotCtx.fillStyle = '#fff';
+      plotCtx.fill();
+    });
+
+    // Draw dimensions
+    const scale = 0.2;
+    plotCtx.fillStyle = '#fff';
+    plotCtx.font = '10px monospace';
+    plotCtx.textAlign = 'center';
+    plotCtx.textBaseline = 'middle';
+    
+    for (let i = 0; i < drawnPoints.length; i++) {
+      if (!drawingClosed && i === drawnPoints.length - 1) continue;
+      const p1 = drawnPoints[i];
+      const p2 = drawnPoints[(i + 1) % drawnPoints.length];
+      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y) * scale;
+      const mx = (p1.x + p2.x) / 2;
+      const my = (p1.y + p2.y) / 2;
+      
+      // Draw a subtle background for text
+      plotCtx.fillStyle = 'rgba(13, 21, 19, 0.8)';
+      const text = dist.toFixed(1) + 'm';
+      const textWidth = plotCtx.measureText(text).width;
+      plotCtx.fillRect(mx - textWidth/2 - 2, my - 6, textWidth + 4, 12);
+      
+      plotCtx.fillStyle = '#c5a66a';
+      plotCtx.fillText(text, mx, my);
+    }
+  }
+}
+
+plotCanvas.addEventListener('click', (e) => {
+  if (drawingClosed) return;
+  const rect = plotCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  
+  // Snap to grid
+  const snappedX = Math.round(x / 20) * 20;
+  const snappedY = Math.round(y / 20) * 20;
+  
+  drawnPoints.push({x: snappedX, y: snappedY});
+  
+  // Auto-close if clicking near start
+  if (drawnPoints.length > 2) {
+    const dx = snappedX - drawnPoints[0].x;
+    const dy = snappedY - drawnPoints[0].y;
+    if (Math.hypot(dx, dy) < 10) {
+      drawnPoints.pop(); // remove the last one since it's the start
+      drawingClosed = true;
+      updatePlotInput();
+    }
+  }
+  drawPlotCanvas();
+});
+
+document.getElementById('plot-draw-reset').addEventListener('click', () => {
+  drawnPoints = [];
+  drawingClosed = false;
+  updatePlotInput();
+  drawPlotCanvas();
+});
+
+document.getElementById('plot-draw-close').addEventListener('click', () => {
+  if (drawnPoints.length > 2) {
+    drawingClosed = true;
+    updatePlotInput();
+    drawPlotCanvas();
+  }
+});
+
+function updatePlotInput() {
+  if (drawingClosed) {
+    // Map canvas coordinates (0-300) to meters. Let's say 300px = 60m. So 1px = 0.2m.
+    // Center at (150, 150) -> (0,0)
+    const scale = 0.2;
+    const mapped = drawnPoints.map(p => ({
+      x: Number(((p.x - 150) * scale).toFixed(2)),
+      z: Number(((p.y - 150) * scale).toFixed(2))
+    }));
+    plotInput.value = JSON.stringify(mapped);
+  } else {
+    plotInput.value = '';
+  }
+}
+
+drawPlotCanvas();
 
 function setStep(step) {
   currentStep = Math.max(0, Math.min(3, step));
@@ -254,7 +377,7 @@ function generate() {
     design = generateDesign(readEngineeringInput());
     scene.renderDesign(design);
     scene.setXray(false, componentFocus.value);
-    roofButton.textContent = `ROOF: ${scene.roofVisible ? 'ON' : 'OFF'}`;
+    document.querySelectorAll('.layer-toolbar input').forEach(cb => scene.setLayerVisibility(cb.dataset.layer, cb.checked));
     currentPlanFloor = 0;
     updatePlanLevels();
     drafting.render(design, currentPlanFloor);
@@ -300,10 +423,13 @@ document.querySelectorAll('[data-view]').forEach((button) => button.addEventList
   scene.setView(button.dataset.view);
 }));
 
-roofButton.addEventListener('click', (event) => {
-  const visible = scene.toggleRoof();
-  event.currentTarget.textContent = `ROOF: ${visible ? 'ON' : 'OFF'}`;
+document.querySelectorAll('.layer-toolbar input').forEach(checkbox => {
+  checkbox.addEventListener('change', (event) => {
+    if (!design) return;
+    scene.setLayerVisibility(event.target.dataset.layer, event.target.checked);
+  });
 });
+
 document.querySelector('#toggle-xray').addEventListener('click', (event) => {
   if (!design) return;
   setMode(currentMode === 'xray' ? '3d' : 'xray');

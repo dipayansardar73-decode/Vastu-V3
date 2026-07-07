@@ -144,19 +144,29 @@ export class DraftingCanvas {
   drawRooms(rooms) {
     const context = this.context;
     rooms.forEach((room) => {
-      const x = this.x(room.x);
-      const y = this.y(room.z + room.d);
-      const width = room.w * this.transform.scale;
-      const height = room.d * this.transform.scale;
+      if (!room.polygon) return;
+      
+      context.beginPath();
+      room.polygon.forEach((p, i) => {
+        const x = this.x(p.x);
+        const y = this.y(p.z);
+        if (i === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.closePath();
+      
       context.fillStyle = `${room.color}38`;
-      context.fillRect(x, y, width, height);
+      context.fill();
       context.strokeStyle = INK;
       context.lineWidth = room.type === 'balcony' ? 0.8 : 1.4;
-      context.strokeRect(x, y, width, height);
+      context.stroke();
+      
       context.save();
-      context.beginPath();
-      context.rect(x + 2, y + 2, Math.max(0, width - 4), Math.max(0, height - 4));
       context.clip();
+      
+      const width = room.w * this.transform.scale;
+      const height = room.d * this.transform.scale;
+      
       if (width > 105 && height > 58) {
         const nameSize = Math.max(7, Math.min(9, width / Math.max(room.name.length, 8) * 1.45));
         this.text(room.name.toUpperCase(), room.center.x, room.center.z + 0.17, nameSize, INK, 'center');
@@ -207,26 +217,50 @@ export class DraftingCanvas {
         context.restore();
       }
     });
-    const front = this.frontMidpoint(design.footprintBounds, design.input.roadSide);
+    const front = this.frontMidpoint(design.footprint, design.input.roadSide);
     this.text('MAIN ENTRY', front.x, front.z, 7.5, ACCENT, 'center', PAPER);
   }
 
-  frontMidpoint(bounds, side) {
-    if (side === 'south') return { x: (bounds.xMin + bounds.xMax) / 2, z: bounds.zMin - 0.35 };
-    if (side === 'north') return { x: (bounds.xMin + bounds.xMax) / 2, z: bounds.zMax + 0.35 };
-    if (side === 'east') return { x: bounds.xMax + 0.35, z: (bounds.zMin + bounds.zMax) / 2 };
-    return { x: bounds.xMin - 0.35, z: (bounds.zMin + bounds.zMax) / 2 };
+  frontMidpoint(footprint, side) {
+    let bestEdge = null;
+    let maxAlign = -Infinity;
+    const targetNx = side === 'east' ? 1 : side === 'west' ? -1 : 0;
+    const targetNz = side === 'south' ? 1 : side === 'north' ? -1 : 0;
+    
+    for (let i = 0; i < footprint.length; i++) {
+      const a = footprint[i];
+      const b = footprint[(i + 1) % footprint.length];
+      const length = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+      const nx = (b.z - a.z) / length;
+      const nz = -(b.x - a.x) / length;
+      const align = nx * targetNx + nz * targetNz;
+      if (align > maxAlign) {
+        maxAlign = align;
+        bestEdge = { a, b, nx, nz };
+      }
+    }
+    
+    if (bestEdge) {
+      return { 
+        x: (bestEdge.a.x + bestEdge.b.x) / 2 + bestEdge.nx * 1.5,
+        z: (bestEdge.a.z + bestEdge.b.z) / 2 + bestEdge.nz * 1.5
+      };
+    }
+    return { x: 0, z: 0 };
   }
 
   drawDimensions(design) {
-    const bounds = design.footprintBounds;
-    this.dimension({ x: bounds.xMin, z: bounds.zMax }, { x: bounds.xMax, z: bounds.zMax }, 1.2);
-    this.dimension({ x: bounds.xMax, z: bounds.zMin }, { x: bounds.xMax, z: bounds.zMax }, -1.2);
+    design.footprint.forEach((p1, index) => {
+      const p2 = design.footprint[(index + 1) % design.footprint.length];
+      this.dimension(p1, p2, 1.2);
+    });
   }
 
   dimension(a, b, offset) {
     const length = Math.hypot(b.x - a.x, b.z - a.z);
-    const normal = { x: -(b.z - a.z) / length, z: (b.x - a.x) / length };
+    if (length < 1.0) return; // skip tiny dimensions to prevent clutter
+    // Outward normal for clockwise polygon
+    const normal = { x: (b.z - a.z) / length, z: -(b.x - a.x) / length };
     const da = { x: a.x + normal.x * offset, z: a.z + normal.z * offset };
     const db = { x: b.x + normal.x * offset, z: b.z + normal.z * offset };
     this.line(a, da, { color: MUTED, width: 0.6 });
